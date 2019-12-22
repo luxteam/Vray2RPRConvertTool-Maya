@@ -4,12 +4,11 @@
 	v.1.0 - first release          
         
 	Supported materials:          
-	- VrayMtl          
+	- VrayMtl     
+	- VrayBumpMtl      
 	- VrayLightMtl             
 	- VrayCarPaintMtl            
 	- VrayBlendMtl             
       
 	Supported utilities:           
-	- VrayComptex           
-	- VrayBump2Normal      
 	- VrayColor     

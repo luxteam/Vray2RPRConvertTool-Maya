@@ -87,10 +87,14 @@ def copyProperty(rpr_name, conv_name, rpr_attr, conv_attr):
 			connectProperty(source_name, source_attr, rpr_name, rpr_attr)
 		# complex color conversion for each channel (RGB/XYZ/HSV)
 		elif not listConnections and vr_type == tuple:
+
 			# changing attr
 			if cmds.objectType(conv_name) == 'VRayMtl' and conv_attr == 'color':
 				conv_attr = "diffuseColor"
-				conv_field = conv_name + "." + conv_attr
+			elif cmds.objectType(conv_name) == 'VRayCarPaintMtl' and conv_attr == 'color':
+				conv_attr = "base_color"
+			conv_field = conv_name + "." + conv_attr
+
 			# RGB (vray)
 			if cmds.objExists(conv_field + "R") and cmds.objExists(rpr_field + "R"):
 				copyProperty(rpr_name, conv_name, rpr_attr + "R", conv_attr + "R")
@@ -817,6 +821,48 @@ def convertUnsupportedNode(vrayMaterial, source, postfix="_UNSUPPORTED_NODE"):
 	return rpr
 
 
+def convertVRayTemperature(vr, source):
+
+	if cmds.objExists(vr + "_rpr"):
+		rpr = vr + "_rpr"
+	else:
+		rpr = cmds.shadingNode("RPRArithmetic", asUtility=True)
+		rpr = cmds.rename(rpr, vr + "_rpr")
+
+		# Logging to file
+		start_log(vr, rpr)
+
+		# Fields conversion
+		setProperty(rpr, 'operation', 0)
+		setProperty(rpr, 'inputB', (0, 0, 0))
+		colorMode = getProperty(vr, 'colorMode')
+		if colorMode:
+			setProperty(rpr, 'inputA', convertTemperature(getProperty(vr, 'temperature')))
+		else:
+			copyProperty(rpr, vr, "inputA", "color")
+		
+
+		# Logging to file
+		end_log(vr)
+
+	conversion_map = {
+		"color": "out",
+		"colorR": "outX",
+		"colorG": "outY",
+		"colorB": "outZ",
+		"temperature": "out",
+		"rgbMultiplier": "out",
+		"gammaCorrection": "out",
+		"alpha": "out",
+		"red": "outX",
+		"green": "outY",
+		"blue": "outZ"
+	}
+
+	rpr += "." + conversion_map[source]
+	return rpr
+
+
 # Create default uber material for unsupported material
 def convertUnsupportedMaterial(vrayMaterial, source):
 
@@ -980,8 +1026,160 @@ def convertVRayMtl(vrMaterial, source):
 
 
 ######################## 
-##  VRayCarPaint
+##  VRayCarPaintMtl
 ########################
+
+def convertVRayCarPaintMtl(vrMaterial, source):
+
+	assigned = checkAssign(vrMaterial)
+	
+	if cmds.objExists(vrMaterial + "_rpr"):
+		rprMaterial = vrMaterial + "_rpr"
+	else:
+		# Creating new Uber material
+		rprMaterial = cmds.shadingNode("RPRUberMaterial", asShader=True)
+		rprMaterial = cmds.rename(rprMaterial, vrMaterial + "_rpr")
+
+		# Check shading engine in vrMaterial
+		if assigned:
+			sg = rprMaterial + "SG"
+			cmds.sets(renderable=True, noSurfaceShader=True, empty=True, name=sg)
+			connectProperty(rprMaterial, "outColor", sg, "surfaceShader")
+		
+		# Logging to file
+		start_log(vrMaterial, rprMaterial)
+
+		# diffuse parameters
+		copyProperty(rprMaterial, vrMaterial, "diffuseColor", "color")
+
+		# refl 
+		setProperty(rprMaterial, 'reflections', 1)
+		copyProperty(rprMaterial, vrMaterial, 'reflectWeight', 'base_reflection')
+		invertValue(rprMaterial, vrMaterial, 'reflectRoughness', 'base_glossiness')
+
+		# coat
+		setProperty(rprMaterial, 'clearCoat', 1)
+		copyProperty(rprMaterial, vrMaterial, 'coatWeight', 'coat_strength')
+		setProperty(rprMaterial, 'coatWeight', 1)
+		copyProperty(rprMaterial, vrMaterial, 'coatColor', 'coat_color') 
+		invertValue(rprMaterial, vrMaterial, 'coatRoughness', 'coat_glossiness')
+
+		end_log(vrMaterial)
+
+	if source:
+		rprMaterial += "." + source
+	return rprMaterial
+
+
+######################## 
+##  VRayLightMtl
+########################
+
+def convertVRayLightMtl(vrMaterial, source):
+
+	assigned = checkAssign(vrMaterial)
+	
+	if cmds.objExists(vrMaterial + "_rpr"):
+		rprMaterial = vrMaterial + "_rpr"
+	else:
+		# Creating new Uber material
+		rprMaterial = cmds.shadingNode("RPRUberMaterial", asShader=True)
+		rprMaterial = cmds.rename(rprMaterial, vrMaterial + "_rpr")
+
+		# Check shading engine in vrMaterial
+		if assigned:
+			sg = rprMaterial + "SG"
+			cmds.sets(renderable=True, noSurfaceShader=True, empty=True, name=sg)
+			connectProperty(rprMaterial, "outColor", sg, "surfaceShader")
+		
+		# Logging to file
+		start_log(vrMaterial, rprMaterial)
+
+		setProperty(rprMaterial, 'emissive', 1)
+		colorMode = getProperty(vrMaterial, 'colorMode')
+		if colorMode:
+			setProperty(rprMaterial, 'emissiveColor', convertTemperature(getProperty(vrMaterial, 'temperature')))
+		else:
+			copyProperty(rprMaterial, vrMaterial, 'emissiveColor', 'color')
+		copyProperty(rprMaterial, vrMaterial, 'emissiveIntensity', 'colorMultiplier')
+
+		# opacity
+		opacity_color = getProperty(vrMaterial, "opacity")
+		if opacity_color[0] < 1 or opacity_color[1] < 1 or opacity_color[2] < 1:
+			if mapDoesNotExist(vrMaterial, "opacity"):
+				transparency = 1 - max(getProperty(vrMaterial, "opacity"))
+				setProperty(rprMaterial, "transparencyLevel", transparency)
+			else:
+				invertValue(rprMaterial, vrMaterial, "transparencyLevel", "opacity")
+			setProperty(rprMaterial, "transparencyEnable", 1)
+
+		end_log(vrMaterial)
+
+	if source:
+		rprMaterial += "." + source
+	return rprMaterial
+
+
+
+######################## 
+##  VRayBlendMtl
+########################
+
+
+def convertVRayBlendMtl(vrMaterial, source):
+	assigned = checkAssign(vrMaterial)
+	
+	if cmds.objExists(vrMaterial + "_rpr"):
+		rprMaterial = vrMaterial + "_rpr"
+	else:
+		# Creating new Uber material
+		rprMaterial = cmds.shadingNode("RPRBlendMaterial", asShader=True)
+		
+		# Logging to file
+		start_log(vrMaterial, rprMaterial)
+
+		baseMtl = cmds.listConnections(vrMaterial + '.base_material')[0]
+		connectProperty(convertMaterial(baseMtl, ''), 'outColor', rprMaterial, 'color0')
+
+		# materials count
+		materials_count = 0
+		for i in range(0, 9):
+			if cmds.listConnections(vrMaterial + '.coat_material_{}'.format(i)):
+				materials_count += 1
+
+		first_material = True
+		for i in range(0, 9):
+			coatMaterial = cmds.listConnections(vrMaterial + '.coat_material_{}'.format(i))
+			if coatMaterial:
+				if materials_count > 1:
+					if first_material:
+						connectProperty(convertMaterial(coatMaterial[0], ''), 'outColor', rprMaterial, 'color1')
+						copyProperty(rprMaterial, vrMaterial, 'weight', 'blend_amount_{}'.format(i))	
+						first_material = False
+					else:
+						prev_rprMaterial = rprMaterial
+						rprMaterial = cmds.shadingNode("RPRBlendMaterial", asShader=True)
+						connectProperty(prev_rprMaterial, 'outColor', rprMaterial, 'color0')
+						connectProperty(convertMaterial(coatMaterial[0], ''), 'outColor', rprMaterial, 'color1')
+						copyProperty(rprMaterial, vrMaterial, 'weight', 'blend_amount_{}'.format(i))	
+				else:
+					connectProperty(convertMaterial(coatMaterial[0], ''), 'outColor', rprMaterial, 'color1')
+					copyProperty(rprMaterial, vrMaterial, 'weight', 'blend_amount_{}'.format(i))	
+
+		# rename and create SG for last blend material
+		rprMaterial = cmds.rename(rprMaterial, vrMaterial + "_rpr")
+
+		# Check shading engine in vrMaterial
+		if assigned:
+			sg = rprMaterial + "SG"
+			cmds.sets(renderable=True, noSurfaceShader=True, empty=True, name=sg)
+			connectProperty(rprMaterial, "outColor", sg, "surfaceShader")
+
+		end_log(vrMaterial)
+
+	if source:
+		rprMaterial += "." + source
+	return rprMaterial
 
 
 ######################## 
@@ -996,6 +1194,8 @@ def convertVRayBumpMtl(vrMaterial, source):
 		rprMaterial = baseMtl + "_rpr"
 	else:
 		rprMaterial = convertMaterial(baseMtl, "")
+
+		start_log(vrMaterial, rprMaterial)
 
 		sg = rprMaterial + "SG"
 		cmds.sets(renderable=True, noSurfaceShader=True, empty=True, name=sg)
@@ -1015,9 +1215,61 @@ def convertVRayBumpMtl(vrMaterial, source):
 					setProperty(rprMaterial,'normalMapEnable', 1)
 					connectProperty(bumps_blend, 'out', rprMaterial, 'normalMap')
 
-		if source:
-			rprMaterial += "." + source
-		return rprMaterial
+		end_log(vrMaterial)
+
+	if source:
+		rprMaterial += "." + source
+	return rprMaterial
+
+
+def convertTemperature(temperature):
+	temperature = temperature / 100
+
+	if temperature <= 66:
+		colorR = 255
+	else:
+		colorR = temperature - 60
+		colorR = 329.698727446 * colorR ** -0.1332047592
+		if colorR < 0:
+			colorR = 0
+		if colorR > 255:
+			colorR = 255
+
+
+	if temperature <= 66:
+		colorG = temperature
+		colorG = 99.4708025861 * math.log(colorG) - 161.1195681661
+		if colorG < 0:
+			colorG = 0
+		if colorG > 255:
+			colorG = 255
+	else:
+		colorG = temperature - 60
+		colorG = 288.1221695283 * colorG ** -0.0755148492
+		if colorG < 0:
+			colorG = 0
+		if colorG > 255:
+			colorG = 255
+
+
+	if temperature >= 66:
+		colorB = 255
+	elif temperature <= 19:
+		colorB = 0
+	else:
+		colorB = temperature - 10
+		colorB = 138.5177312231 * math.log(colorB) - 305.0447927307
+		if colorB < 0:
+			colorB = 0
+		if colorB > 255:
+			colorB = 255
+
+	colorR = colorR / 255
+	colorG = colorG / 255
+	colorB = colorB / 255
+
+	return (colorR, colorG, colorB)
+
 
 
 # Convert material. Returns new material name.
@@ -1030,13 +1282,13 @@ def convertMaterial(material, source):
 		# VRay materials
 		"VRayMtl": convertVRayMtl,
 		"VRayBumpMtl": convertVRayBumpMtl,
-		"VRayCarPaintMtl": convertUnsupportedMaterial,
+		"VRayCarPaintMtl": convertVRayCarPaintMtl,
+		"VRayBlendMtl": convertVRayBlendMtl,
+		"VRayLightMtl": convertVRayLightMtl,
 		"VRayAlSurface": convertUnsupportedMaterial,
-		"VRayBlendMtl": convertUnsupportedMaterial,
 		"VRayFastSSS2Mtl": convertUnsupportedMaterial,
 		"VRayFlakesMtl": convertUnsupportedMaterial,
 		"VRayHairNextMtl": convertUnsupportedMaterial,
-		"VRayLightMtl": convertUnsupportedMaterial,
 		"VRayMeshMaterial": convertUnsupportedMaterial,
 		"VRayMtl2Sided": convertUnsupportedMaterial,
 		"VRayMtlGLSL": convertUnsupportedMaterial,
@@ -1073,6 +1325,7 @@ def convertMaterial(material, source):
 		"bump2d": convertbump2d,
 
 		# VRay utilities
+		"VRayTemperature": convertVRayTemperature
 
 	}
 
