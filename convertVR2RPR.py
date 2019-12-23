@@ -1138,8 +1138,14 @@ def convertVRayBlendMtl(vrMaterial, source):
 		# Logging to file
 		start_log(vrMaterial, rprMaterial)
 
-		baseMtl = cmds.listConnections(vrMaterial + '.base_material')[0]
-		connectProperty(convertMaterial(baseMtl, ''), 'outColor', rprMaterial, 'color0')
+		baseMtl = cmds.listConnections(vrMaterial + '.base_material')
+		if baseMtl:
+			connectProperty(convertMaterial(baseMtl[0], ''), 'outColor', rprMaterial, 'color0')
+		else:
+			baseMtl = cmds.shadingNode("RPRUberMaterial", asShader=True)
+			setProperty(baseMtl, 'transparencyEnable', 1)
+			setProperty(baseMtl, 'transparencyLevel', 0)
+			connectProperty(baseMtl, 'outColor', rprMaterial, 'color0')
 
 		# materials count
 		materials_count = 0
@@ -1220,6 +1226,38 @@ def convertVRayBumpMtl(vrMaterial, source):
 	if source:
 		rprMaterial += "." + source
 	return rprMaterial
+
+
+def convertVRayLightDomeShape(dome_light):
+
+	if cmds.objExists("RPRIBL"):
+		iblShape = "RPRIBLShape"
+		iblTransform = "RPRIBL"
+	else:
+		# create IBL node
+		iblShape = cmds.createNode("RPRIBL", n="RPRIBLShape")
+		iblTransform = cmds.listRelatives(iblShape, p=True)[0]
+		setProperty(iblTransform, "scale", (1001.25, 1001.25, 1001.25))
+
+	# Logging to file 
+	start_log(dome_light, iblShape)
+  
+	copyProperty(iblShape, dome_light, 'intensity', 'intensityMult')
+
+	# Copy properties from vr dome light
+	domeTransform = cmds.listRelatives(dome_light, p=True)[0]
+	setProperty(iblTransform, "rotateY", getProperty(domeTransform, "rotateY") - 90)
+	
+	file = cmds.listConnections(dome_light + ".domeTex")
+	if file:
+		setProperty(iblTransform, "filePath", getProperty(file[0], "fileTextureName"))
+
+	invisible = getProperty(dome_light, 'invisible')
+	if invisible:
+		setProperty(iblShape, 'display', 0)
+		   
+	# Logging to file
+	end_log(dome_light) 
 
 
 def convertTemperature(temperature):
@@ -1349,8 +1387,8 @@ def convertLight(light):
 
 		# VRay lights
 
+		"VRayLightDomeShape": convertVRayLightDomeShape,
 		#"VRayLightRectShape": convertVRayLightRectShape,
-		#"VRayLightDomeShape": convertVRayLightDomeShape,
 		#"VRaySunShape": convertVRaySunShape,
 		#"VRaySky": convertVRaySky,
 		#"VRayLightSphereShape": convertVRayLightSphereShape,
