@@ -11,6 +11,7 @@
 
 import maya.mel as mel
 import maya.cmds as cmds
+import os
 import time
 import math
 import traceback
@@ -936,7 +937,7 @@ def convertVRayMtl(vrMaterial, source):
 		opacity_color = getProperty(vrMaterial, "opacityMap")
 		if opacity_color[0] < 1 or opacity_color[1] < 1 or opacity_color[2] < 1:
 			if mapDoesNotExist(vrMaterial, "opacityMap"):
-				transparency = 1 - max(getProperty(vrMaterial, "opacityMap"))
+				transparency = 1 - max(opacity_color)
 				setProperty(rprMaterial, "transparencyLevel", transparency)
 			else:
 				invertValue(rprMaterial, vrMaterial, "transparencyLevel", "opacityMap")
@@ -945,6 +946,12 @@ def convertVRayMtl(vrMaterial, source):
 		# reflection
 		copyProperty(rprMaterial, vrMaterial, "reflectColor", "reflectionColor")
 		copyProperty(rprMaterial, vrMaterial, "reflectWeight", "reflectionColorAmount")
+
+		metalness = getProperty(vrMaterial, 'metalness')
+		if metalness:
+			setProperty(rprMaterial, 'reflectMetalMaterial', 1)
+			copyProperty(rprMaterial, vrMaterial, 'reflectMetalness', 'metalness')
+			copyProperty(rprMaterial, vrMaterial, 'reflectColor', 'color')
 
 		useRoughness = getProperty(vrMaterial, 'useRoughness')
 		if useRoughness:
@@ -957,10 +964,18 @@ def convertVRayMtl(vrMaterial, source):
 			setProperty(rprMaterial, 'refraction', 1)
 			setProperty(rprMaterial, 'refractLinkToReflect', 1)
 
-		copyProperty(rprMaterial, vrMaterial, "reflectIOR", "fresnelIOR")
 		fresnelIOR = getProperty(vrMaterial, 'fresnelIOR')
+		if mapDoesNotExist(vrMaterial, 'fresnelIOR') and fresnelIOR > 10:
+			setProperty(rprMaterial, "reflectIOR", 10)
+		else:
+			copyProperty(rprMaterial, vrMaterial, "reflectIOR", "fresnelIOR")
+
 		if fresnelIOR < 0.1 or fresnelIOR > 10:
-			setProperty(rprMaterial, 'reflectMetalMaterial') 
+			setProperty(rprMaterial, 'reflectMetalMaterial', 1) 
+			copyProperty(rprMaterial, vrMaterial, 'reflectColor', 'color')
+
+		if fresnelIOR == 1:
+			setProperty(rprMaterial, 'refractThinSurface', 1)
 
 		copyProperty(rprMaterial, vrMaterial, "reflectAnisotropy", "anisotropy")
 		anisotropyDerivation = getProperty(vrMaterial, 'anisotropyDerivation')
@@ -988,22 +1003,12 @@ def convertVRayMtl(vrMaterial, source):
 		if MAX_RAY_DEPTH and refractionsMaxDepth < MAX_RAY_DEPTH:
 			MAX_RAY_DEPTH = refractionsMaxDepth
 
-		copyProperty(rprMaterial, vrMaterial, 'refractWeight', 'refractionColorAmount')
+		copyProperty(rprMaterial, vrMaterial, 'refractColor', 'fogColor')
+		reflectionColor = getProperty(vrMaterial, 'reflectionColor')
+		rpr_refl_weight = getProperty(vrMaterial, 'refractionColorAmount') * (0.3 * reflectionColor[0] + 0.59 * reflectionColor[1] + 0.11 * reflectionColor[2])
+		setProperty(rprMaterial, 'refractWeight', rpr_refl_weight)
 		invertValue(rprMaterial, vrMaterial, 'refractRoughness', 'refractionGlossiness')
 		copyProperty(rprMaterial, vrMaterial, 'refractIor', 'refractionIOR')
-
-		fog_arith = cmds.shadingNode("RPRArithmetic", asUtility=True)
-		fog_arith = cmds.rename(fog_arith, "Fog pow")
-		setProperty(fog_arith, "operation", 15)
-		copyProperty(fog_arith, vrMaterial, 'inputA', 'fogColor')
-		copyProperty(fog_arith, vrMaterial, 'inputB', 'fogMult')
-
-		refr_color = cmds.shadingNode("RPRArithmetic", asUtility=True)
-		refr_color = cmds.rename(refr_color, "Refr mult")
-		setProperty(refr_color, "operation", 2)
-		copyProperty(refr_color, vrMaterial, 'inputA', 'refractionColor')
-		connectProperty(fog_arith, 'out', refr_color, 'inputB')
-		connectProperty(refr_color, 'out', rprMaterial, 'refractColor')
 
 		traceRefractions = getProperty(vrMaterial, 'traceRefractions')
 		if traceRefractions:
@@ -1013,10 +1018,211 @@ def convertVRayMtl(vrMaterial, source):
 		if sssOn:
 			setProperty(rprMaterial, 'sssEnable', 1)
 
+		# bump
 		bumpMapType = getProperty(vrMaterial, 'bumpMapType')
-		if bumpMapType == 0 or bumpMapType == 1:
+		if bumpMapType in (0, 1):
+			if bumpMapType == 0:
+				rpr_node = cmds.shadingNode("RPRBump", asUtility=True)
+			elif bumpMapType == 1:
+				rpr_node = cmds.shadingNode("RPRNormal", asUtility=True)
+			copyProperty(rpr_node, vrMaterial, 'color', 'bumpMap')
+			copyProperty(rpr_node, vrMaterial, 'strength', 'bumpMult')
 			setProperty(rprMaterial, 'normalMapEnable', 1)
-			copyProperty(rprMaterial, vrMaterial, 'normalMap', 'bumpMap')
+			connectProperty(rpr_node, 'out', rprMaterial, 'normalMap')
+
+		end_log(vrMaterial)
+
+	if source:
+		rprMaterial += "." + source
+	return rprMaterial
+
+
+######################## 
+##  VRayAlSurface
+########################
+
+def convertVRayAlSurface(vrMaterial, source):
+
+	assigned = checkAssign(vrMaterial)
+	
+	if cmds.objExists(vrMaterial + "_rpr"):
+		rprMaterial = vrMaterial + "_rpr"
+	else:
+		# Creating new Uber material
+		rprMaterial = cmds.shadingNode("RPRUberMaterial", asShader=True)
+		rprMaterial = cmds.rename(rprMaterial, vrMaterial + "_rpr")
+
+		# Check shading engine in vrMaterial
+		if assigned:
+			sg = rprMaterial + "SG"
+			cmds.sets(renderable=True, noSurfaceShader=True, empty=True, name=sg)
+			connectProperty(rprMaterial, "outColor", sg, "surfaceShader")
+		
+		# Logging to file
+		start_log(vrMaterial, rprMaterial)
+
+		# Enable properties, which are default in VRay
+		defaultEnable(rprMaterial, vrMaterial, "diffuse", "diffuseStrength")
+		defaultEnable(rprMaterial, vrMaterial, "reflections", "reflect1Strength")
+		defaultEnable(rprMaterial, vrMaterial, "sssEnable", "sssMix")		
+
+		# opacity
+		opacity = getProperty(vrMaterial, "opacity")
+		if opacity < 1:
+			if mapDoesNotExist(vrMaterial, "opacity"):
+				transparency = 1 - opacity
+				setProperty(rprMaterial, "transparencyLevel", transparency)
+			else:
+				invertValue(rprMaterial, vrMaterial, "transparencyLevel", "opacityMap")
+			setProperty(rprMaterial, "transparencyEnable", 1)
+
+		# diffuse parameters
+		copyProperty(rprMaterial, vrMaterial, "diffuseColor", "diffuse")
+		copyProperty(rprMaterial, vrMaterial, "diffuseWeight", "diffuseStrength")
+
+		diffuseBumpType = getProperty(vrMaterial, 'diffuseBumpType')
+		if diffuseBumpType in (0, 1):
+			if diffuseBumpType == 0:
+				rpr_node = cmds.shadingNode("RPRBump", asUtility=True)
+			elif diffuseBumpType == 1:
+				rpr_node = cmds.shadingNode("RPRNormal", asUtility=True)
+			copyProperty(rpr_node, vrMaterial, 'color', 'diffuseBumpMap')
+			copyProperty(rpr_node, vrMaterial, 'strength', 'diffuseBumpAmount')
+			setProperty(rprMaterial, 'useShaderNormal', 0)
+			connectProperty(rpr_node, 'out', rprMaterial, 'diffuseNormal')
+
+		# refl
+		copyProperty(rprMaterial, vrMaterial, "reflectColor", "reflect1")
+		copyProperty(rprMaterial, vrMaterial, "reflectWeight", "reflect1Strength")
+		copyProperty(rprMaterial, vrMaterial, "reflectRoughness", "reflect1Roughness")
+		copyProperty(rprMaterial, vrMaterial, "reflectIOR", "reflect1IOR")
+
+		reflect1BumpType = getProperty(vrMaterial, 'reflect1BumpType')
+		if reflect1BumpType in (0, 1):
+			if reflect1BumpType == 0:
+				rpr_node = cmds.shadingNode("RPRBump", asUtility=True)
+			elif reflect1BumpType == 1:
+				rpr_node = cmds.shadingNode("RPRNormal", asUtility=True)
+			copyProperty(rpr_node, vrMaterial, 'color', 'reflect1BumpMap')
+			copyProperty(rpr_node, vrMaterial, 'strength', 'reflect1BumpAmount')
+			setProperty(rprMaterial, 'reflectUseShaderNormal', 0)
+			connectProperty(rpr_node, 'out', rprMaterial, 'reflectNormal')
+
+		# sss
+		copyProperty(rprMaterial, vrMaterial, 'sssWeight', 'sssMix')
+
+		# sss1
+		sss1_rad_x_den_scale = cmds.shadingNode("RPRArithmetic", asUtility=True)
+		sss1_rad_x_den_scale = cmds.rename(sss1_rad_x_den_scale, 'sss1_rad_x_den_scale')
+		setProperty(sss1_rad_x_den_scale, 'operation', 2)
+		copyProperty(sss1_rad_x_den_scale, vrMaterial, 'inputA', 'sss1Radius')
+		copyProperty(sss1_rad_x_den_scale, vrMaterial, 'inputB', 'sssDensityScale')
+
+		sss1_rad_x_weight = cmds.shadingNode("RPRArithmetic", asUtility=True)
+		sss1_rad_x_weight = cmds.rename(sss1_rad_x_weight, 'sss1_rad_x_weight')
+		setProperty(sss1_rad_x_weight, 'operation', 2)
+		connectProperty(sss1_rad_x_den_scale, 'out', sss1_rad_x_weight, 'inputA')
+		copyProperty(sss1_rad_x_weight, vrMaterial, 'inputB', 'sss1Weight')
+
+		sss1_rad_x_color = cmds.shadingNode("RPRArithmetic", asUtility=True)
+		sss1_rad_x_color = cmds.rename(sss1_rad_x_color, 'sss1_rad_x_color')
+		setProperty(sss1_rad_x_color, 'operation', 2)
+		connectProperty(sss1_rad_x_weight, 'out', sss1_rad_x_color, 'inputA')
+		copyProperty(sss1_rad_x_color, vrMaterial, 'inputB', 'sss1Color')
+
+		# sss2
+
+		sss2_rad_x_den_scale = cmds.shadingNode("RPRArithmetic", asUtility=True)
+		sss2_rad_x_den_scale = cmds.rename(sss2_rad_x_den_scale, 'sss2_rad_x_den_scale')
+		setProperty(sss2_rad_x_den_scale, 'operation', 2)
+		copyProperty(sss2_rad_x_den_scale, vrMaterial, 'inputA', 'sss2Radius')
+		copyProperty(sss2_rad_x_den_scale, vrMaterial, 'inputB', 'sssDensityScale')
+
+		sss2_rad_x_weight = cmds.shadingNode("RPRArithmetic", asUtility=True)
+		sss2_rad_x_weight = cmds.rename(sss2_rad_x_weight, 'sss2_rad_x_weight')
+		setProperty(sss2_rad_x_weight, 'operation', 2)
+		connectProperty(sss2_rad_x_den_scale, 'out', sss2_rad_x_weight, 'inputA')
+		copyProperty(sss2_rad_x_weight, vrMaterial, 'inputB', 'sss2Weight')
+
+		sss2_rad_x_color = cmds.shadingNode("RPRArithmetic", asUtility=True)
+		sss2_rad_x_color = cmds.rename(sss2_rad_x_color, 'sss2_rad_x_color')
+		setProperty(sss2_rad_x_color, 'operation', 2)
+		connectProperty(sss2_rad_x_weight, 'out', sss2_rad_x_color, 'inputA')
+		copyProperty(sss2_rad_x_color, vrMaterial, 'inputB', 'sss2Color')
+
+		# sss3
+
+		sss3_rad_x_den_scale = cmds.shadingNode("RPRArithmetic", asUtility=True)
+		sss3_rad_x_den_scale = cmds.rename(sss3_rad_x_den_scale, 'sss3_rad_x_den_scale')
+		setProperty(sss3_rad_x_den_scale, 'operation', 2)
+		copyProperty(sss3_rad_x_den_scale, vrMaterial, 'inputA', 'sss3Radius')
+		copyProperty(sss3_rad_x_den_scale, vrMaterial, 'inputB', 'sssDensityScale')
+
+		sss3_rad_x_weight = cmds.shadingNode("RPRArithmetic", asUtility=True)
+		sss3_rad_x_weight = cmds.rename(sss3_rad_x_weight, 'sss3_rad_x_weight')
+		setProperty(sss3_rad_x_weight, 'operation', 2)
+		connectProperty(sss3_rad_x_den_scale, 'out', sss2_rad_x_weight, 'inputA')
+		copyProperty(sss3_rad_x_weight, vrMaterial, 'inputB', 'sss3Weight')
+
+		sss3_rad_x_color = cmds.shadingNode("RPRArithmetic", asUtility=True)
+		sss3_rad_x_color = cmds.rename(sss3_rad_x_color, 'sss3_rad_x_color')
+		setProperty(sss3_rad_x_color, 'operation', 2)
+		connectProperty(sss3_rad_x_weight, 'out', sss3_rad_x_color, 'inputA')
+		copyProperty(sss3_rad_x_color, vrMaterial, 'inputB', 'sss3Color')
+
+		# sss radius
+		mix_sss1_sss2 = cmds.shadingNode("RPRArithmetic", asUtility=True)
+		mix_sss1_sss2 = cmds.rename(mix_sss1_sss2, 'mix_sss1_color_and_sss2_color')
+		setProperty(mix_sss1_sss2, 'operation', 20)
+		connectProperty(sss1_rad_x_color, 'out', mix_sss1_sss2, 'inputA')
+		connectProperty(sss2_rad_x_color, 'out', mix_sss1_sss2, 'inputB')
+
+		mix_sss3 = cmds.shadingNode("RPRArithmetic", asUtility=True)
+		mix_sss3 = cmds.rename(mix_sss3, 'mix_sss3_color')
+		setProperty(mix_sss3, 'operation', 20)
+		connectProperty(mix_sss1_sss2, 'out', mix_sss3, 'inputA')
+		connectProperty(sss3_rad_x_color, 'out', mix_sss3, 'inputB')
+		connectProperty(mix_sss3, 'out', rprMaterial, 'subsurfaceRadius0')
+
+		# get radius weight
+		sss_radius_dict = {'sss1Radius': getProperty(vrMaterial, 'sss1Radius'), 'sss2Radius': getProperty(vrMaterial, 'sss2Radius'), 'sss3Radius': getProperty(vrMaterial, 'sss3Radius')}
+		highest_radius = max(sss_radius_dict, key=sss_radius_dict.get)
+		sss_radius_dict.pop(highest_radius)
+		middle_radius = max(sss_radius_dict, key=sss_radius_dict.get)
+		lowest_radius = min(sss_radius_dict, key=sss_radius_dict.get)
+		lowest_radius_weight = 1 / (getProperty(vrMaterial, lowest_radius) * 100 / getProperty(vrMaterial, highest_radius))
+		middle_radius_weight = 1 / (getProperty(vrMaterial, middle_radius) * 100 / getProperty(vrMaterial, highest_radius))
+
+		# volume and backscattering color
+		low_and_mid_with_low_weight = cmds.shadingNode("RPRBlendValue", asUtility=True)
+		low_and_mid_with_low_weight = cmds.rename(low_and_mid_with_low_weight, 'low_and_mid_with_low_weight')
+		connectProperty(sss1_rad_x_color, 'out', low_and_mid_with_low_weight, 'inputA')
+		connectProperty(sss3_rad_x_color, 'out', low_and_mid_with_low_weight, 'inputB')
+		setProperty(low_and_mid_with_low_weight, 'weight', lowest_radius_weight)
+
+		high_and_mid_with_low_weight = cmds.shadingNode("RPRBlendValue", asUtility=True)
+		high_and_mid_with_low_weight = cmds.rename(high_and_mid_with_low_weight, 'high_and_mid_with_low_weight')
+		connectProperty(low_and_mid_with_low_weight, 'out', high_and_mid_with_low_weight, 'inputA')
+		connectProperty(sss2_rad_x_color, 'out', high_and_mid_with_low_weight, 'inputB')
+		setProperty(high_and_mid_with_low_weight, 'weight', middle_radius_weight)
+
+		setProperty(rprMaterial, 'separateBackscatterColor', 1)
+		connectProperty(high_and_mid_with_low_weight, 'out', rprMaterial, 'backscatteringColor')
+		connectProperty(high_and_mid_with_low_weight, 'out', rprMaterial, 'volumeScatter')
+
+		# bump
+		bumpType = getProperty(vrMaterial, 'bumpType')
+		if bumpType in (0, 1):
+			if bumpType == 0:
+				rpr_node = cmds.shadingNode("RPRBump", asUtility=True)
+			elif bumpType == 1:
+				rpr_node = cmds.shadingNode("RPRNormal", asUtility=True)
+			copyProperty(rpr_node, vrMaterial, 'color', 'bumpMap')
+			copyProperty(rpr_node, vrMaterial, 'strength', 'bumpAmount')
+			setProperty(rprMaterial, 'normalMapEnable', 1)
+			connectProperty(rpr_node, 'out', rprMaterial, 'normalMap')
+
+
 
 		end_log(vrMaterial)
 
@@ -1107,7 +1313,7 @@ def convertVRayLightMtl(vrMaterial, source):
 		opacity_color = getProperty(vrMaterial, "opacity")
 		if opacity_color[0] < 1 or opacity_color[1] < 1 or opacity_color[2] < 1:
 			if mapDoesNotExist(vrMaterial, "opacity"):
-				transparency = 1 - max(getProperty(vrMaterial, "opacity"))
+				transparency = 1 - max(opacity_color)
 				setProperty(rprMaterial, "transparencyLevel", transparency)
 			else:
 				invertValue(rprMaterial, vrMaterial, "transparencyLevel", "opacity")
@@ -1119,6 +1325,74 @@ def convertVRayLightMtl(vrMaterial, source):
 		rprMaterial += "." + source
 	return rprMaterial
 
+
+######################## 
+##  VRayHairNextMtl
+########################
+
+def convertVRayHairNextMtl(vrMaterial, source):
+
+	assigned = checkAssign(vrMaterial)
+	
+	if cmds.objExists(vrMaterial + "_rpr"):
+		rprMaterial = vrMaterial + "_rpr"
+	else:
+		# Creating new Uber material
+		rprMaterial = cmds.shadingNode("RPRUberMaterial", asShader=True)
+		rprMaterial = cmds.rename(rprMaterial, vrMaterial + "_rpr")
+
+		# Check shading engine in vrMaterial
+		if assigned:
+			sg = rprMaterial + "SG"
+			cmds.sets(renderable=True, noSurfaceShader=True, empty=True, name=sg)
+			connectProperty(rprMaterial, "outColor", sg, "surfaceShader")
+		
+		# Logging to file
+		start_log(vrMaterial, rprMaterial)
+
+		setProperty(rprMaterial, 'reflections', 1)
+		setProperty(rprMaterial, 'clearCoat', 1)
+
+		setProperty(rprMaterial, 'reflectAnisotropy', 1)
+		setProperty(rprMaterial, 'reflectAnisotropyRotation', 0.35)
+		setProperty(rprMaterial, 'reflectIOR', 10)
+
+		# transparency
+		transparency = getProperty(vrMaterial, "transparency")
+		if transparency < 1:
+			if mapDoesNotExist(vrMaterial, "transparency"):
+				transparency = 1 - transparency
+				setProperty(rprMaterial, "transparencyLevel", transparency)
+			else:
+				invertValue(rprMaterial, vrMaterial, "transparencyLevel", "transparency")
+			setProperty(rprMaterial, "transparencyEnable", 1)
+
+		copyProperty(rprMaterial, vrMaterial, 'diffuseColor', 'diffuse_color')
+		copyProperty(rprMaterial, vrMaterial, 'diffuseWeight', 'diffuse_amount')
+		invertValue(rprMaterial, vrMaterial, 'coatRoughness', 'primary_glossiness_boost')
+		invertValue(rprMaterial, vrMaterial, 'reflectRoughness', 'glossiness')
+
+		arith1 = cmds.shadingNode("RPRArithmetic", asUtility=True)
+		setProperty(arith1, 'operation', 2)
+		copyProperty(arith1, vrMaterial, 'inputA', 'dye_color')
+		invertValue(arith1, vrMaterial, 'inputB', 'melanin')
+
+		arith2 = cmds.shadingNode('RPRArithmetic', asUtility=True)
+		setProperty(arith2, 'operation', 2)
+		connectProperty(arith1, 'out', arith2, 'inputA')
+		setProperty(arith2, 'inputB', (0.3, 0.3, 0.3))
+
+		arith3 = cmds.shadingNode('RPRArithmetic', asUtility=True)
+		setProperty(arith3, 'operation', 2)
+		connectProperty(arith2, 'out', arith3, 'inputA')
+		copyProperty(arith3, vrMaterial, 'inputB', 'secondary_tint')
+		connectProperty(arith3, 'out', rprMaterial, 'reflectColor')
+
+		end_log(vrMaterial)
+
+	if source:
+		rprMaterial += "." + source
+	return rprMaterial
 
 
 ######################## 
@@ -1323,10 +1597,10 @@ def convertMaterial(material, source):
 		"VRayCarPaintMtl": convertVRayCarPaintMtl,
 		"VRayBlendMtl": convertVRayBlendMtl,
 		"VRayLightMtl": convertVRayLightMtl,
-		"VRayAlSurface": convertUnsupportedMaterial,
+		"VRayAlSurface": convertVRayAlSurface,
+		"VRayHairNextMtl": convertVRayHairNextMtl,
 		"VRayFastSSS2Mtl": convertUnsupportedMaterial,
 		"VRayFlakesMtl": convertUnsupportedMaterial,
-		"VRayHairNextMtl": convertUnsupportedMaterial,
 		"VRayMeshMaterial": convertUnsupportedMaterial,
 		"VRayMtl2Sided": convertUnsupportedMaterial,
 		"VRayMtlGLSL": convertUnsupportedMaterial,
@@ -1491,10 +1765,22 @@ def defaultEnableByColor(RPRmaterial, VRmaterial, enable, value):
 				setProperty(RPRmaterial, enable, 1)
 	else:
 		setProperty(RPRmaterial, enable, 1)
-	
+
+
+def repathScene():
+	scene_workspace = cmds.workspace(q=True, dir=True)
+	print('Your workspace located in {}'.format(scene_workspace))
+	unresolved_files = cmds.filePathEditor(query=True, listFiles="", unresolved=True, attributeOnly=True)
+	if unresolved_files:
+		for item in unresolved_files:
+			print("Repathing node {}".format(item, os.path.join(item, scene_workspace)))
+			cmds.filePathEditor(item, repath=scene_workspace, recursive=True, ra=1)
 
 
 def convertScene():
+
+	# Repath paths in scene files (filePathEditor)
+	repathScene()
 
 	# Check plugins
 	if not cmds.pluginInfo("vrayformaya", q=True, loaded=True):
