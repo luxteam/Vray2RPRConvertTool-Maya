@@ -951,6 +951,7 @@ def convertVRayMtl(vrMaterial, source):
 		if metalness:
 			setProperty(rprMaterial, 'reflectMetalMaterial', 1)
 			copyProperty(rprMaterial, vrMaterial, 'reflectMetalness', 'metalness')
+			copyProperty(rprMaterial, vrMaterial, 'reflectColor', 'color')
 
 		useRoughness = getProperty(vrMaterial, 'useRoughness')
 		if useRoughness:
@@ -972,7 +973,6 @@ def convertVRayMtl(vrMaterial, source):
 		if fresnelIOR < 0.1 or fresnelIOR > 10:
 			setProperty(rprMaterial, 'reflectMetalMaterial', 1) 
 			setProperty(rprMaterial, 'reflectMetalness', 1)
-			copyProperty(rprMaterial, vrMaterial, 'reflectColor', 'color')
 
 		copyProperty(rprMaterial, vrMaterial, "reflectAnisotropy", "anisotropy")
 		anisotropyDerivation = getProperty(vrMaterial, 'anisotropyDerivation')
@@ -1534,6 +1534,51 @@ def convertVRayLightDomeShape(dome_light):
 	end_log(dome_light) 
 
 
+def convertVRayLightIESShape(vr_light): 
+
+	# Redshift light transform
+	splited_name = vr_light.split("|")
+	vrTransform = "|".join(splited_name[0:-1])
+	group = "|".join(splited_name[0:-2])
+
+	if cmds.objExists(vrTransform + "_rpr"):
+		rprTransform = vrTransform + "_rpr"
+		rprLightShape = cmds.listRelatives(rprTransform)[0]
+	else: 
+		rprLightShape = cmds.createNode("RPRIES", n="RPRIESLight")
+		rprLightShape = cmds.rename(rprLightShape, splited_name[-1] + "_rpr")
+		rprTransform = cmds.listRelatives(rprLightShape, p=True)[0]
+		rprTransform = cmds.rename(rprTransform, splited_name[-2] + "_rpr")
+		rprLightShape = cmds.listRelatives(rprTransform)[0]
+
+		if group:
+			cmds.parent(rprTransform, group)
+
+		rprTransform = group + "|" + rprTransform
+		rprLightShape = rprTransform + "|" + rprLightShape
+
+	# Logging to file 
+	start_log(vr_light, rprLightShape)
+
+	# Copy properties from vrLight
+
+	copyProperty(rprLightShape, vr_light, 'intensity', 'intensityMult')
+	colorMode = getProperty(vr_light, 'colorMode')
+	if colorMode:
+		setProperty(rprLightShape, 'color', convertTemperature(getProperty(vr_light, 'temperature')))
+	else:
+		copyProperty(rprLightShape, vr_light, "color", "lightColor")
+	
+	setProperty(rprLightShape, "iesFile", getProperty(vr_light, "iesFile"))
+	
+	copyProperty(rprTransform, vrTransform, "translate", "translate")
+	copyProperty(rprTransform, vrTransform, "rotate", "rotate")
+	copyProperty(rprTransform, vrTransform, "scale", "scale")
+
+	# Logging to file
+	end_log(vr_light) 
+
+
 def convertTemperature(temperature):
 	temperature = temperature / 100
 
@@ -1667,7 +1712,7 @@ def convertLight(light):
 		#"VRaySky": convertVRaySky,
 		#"VRayLightSphereShape": convertVRayLightSphereShape,
 		#"VRayLightMeshLightLinking": convertVRayLightMeshLightLinking,
-		#"VRayLightIESShape": convertVRayLightIESShape,
+		"VRayLightIESShape": convertVRayLightIESShape,
 
 	}
 
