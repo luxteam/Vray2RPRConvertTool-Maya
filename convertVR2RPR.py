@@ -951,7 +951,6 @@ def convertVRayMtl(vrMaterial, source):
 		if metalness:
 			setProperty(rprMaterial, 'reflectMetalMaterial', 1)
 			copyProperty(rprMaterial, vrMaterial, 'reflectMetalness', 'metalness')
-			copyProperty(rprMaterial, vrMaterial, 'reflectColor', 'color')
 
 		useRoughness = getProperty(vrMaterial, 'useRoughness')
 		if useRoughness:
