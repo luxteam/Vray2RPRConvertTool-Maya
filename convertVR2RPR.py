@@ -1004,7 +1004,7 @@ def convertVRayMtl(vrMaterial, source):
 			MAX_RAY_DEPTH = refractionsMaxDepth
 
 		copyProperty(rprMaterial, vrMaterial, 'refractColor', 'fogColor')
-		refractColor = getProperty(vrMaterial, 'refractColor')
+		refractColor = getProperty(vrMaterial, 'refractionColor')
 		rpr_refl_weight = getProperty(vrMaterial, 'refractionColorAmount') * (0.3 * refractColor[0] + 0.59 * refractColor[1] + 0.11 * refractColor[2])
 		setProperty(rprMaterial, 'refractWeight', rpr_refl_weight)
 		invertValue(rprMaterial, vrMaterial, 'refractRoughness', 'refractionGlossiness')
