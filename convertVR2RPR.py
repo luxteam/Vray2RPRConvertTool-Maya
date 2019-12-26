@@ -972,10 +972,8 @@ def convertVRayMtl(vrMaterial, source):
 
 		if fresnelIOR < 0.1 or fresnelIOR > 10:
 			setProperty(rprMaterial, 'reflectMetalMaterial', 1) 
+			setProperty(rprMaterial, 'reflectMetalness', 1)
 			copyProperty(rprMaterial, vrMaterial, 'reflectColor', 'color')
-
-		if fresnelIOR == 1:
-			setProperty(rprMaterial, 'refractThinSurface', 1)
 
 		copyProperty(rprMaterial, vrMaterial, "reflectAnisotropy", "anisotropy")
 		anisotropyDerivation = getProperty(vrMaterial, 'anisotropyDerivation')
@@ -1009,6 +1007,9 @@ def convertVRayMtl(vrMaterial, source):
 		setProperty(rprMaterial, 'refractWeight', rpr_refl_weight)
 		invertValue(rprMaterial, vrMaterial, 'refractRoughness', 'refractionGlossiness')
 		copyProperty(rprMaterial, vrMaterial, 'refractIor', 'refractionIOR')
+
+		if getProperty(vrMaterial, 'refractionIOR') == 1:
+			setProperty(rprMaterial, 'refractThinSurface', 1)
 
 		traceRefractions = getProperty(vrMaterial, 'traceRefractions')
 		if traceRefractions:
