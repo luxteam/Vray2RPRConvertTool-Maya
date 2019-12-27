@@ -1255,20 +1255,71 @@ def convertVRayCarPaintMtl(vrMaterial, source):
 		# Logging to file
 		start_log(vrMaterial, rprMaterial)
 
+		defaultEnable(rprMaterial, vrMaterial, "clearCoat", "coat_strength")		
+
 		# diffuse parameters
 		copyProperty(rprMaterial, vrMaterial, "diffuseColor", "color")
 
 		# refl 
 		setProperty(rprMaterial, 'reflections', 1)
-		copyProperty(rprMaterial, vrMaterial, 'reflectWeight', 'base_reflection')
+		copyProperty(rprMaterial, vrMaterial, "reflectColor", "color")
+		setProperty(rprMaterial, 'reflectMetalMaterial', 1)
+		copyProperty(rprMaterial, vrMaterial, 'reflectMetalness', 'base_reflection')
 		invertValue(rprMaterial, vrMaterial, 'reflectRoughness', 'base_glossiness')
 
+		base_bumpMapType = getProperty(vrMaterial, 'base_bumpMapType')
+		if base_bumpMapType in (0, 1):
+			if base_bumpMapType == 0:
+				rpr_node = cmds.shadingNode("RPRBump", asUtility=True)
+			elif base_bumpMapType == 1:
+				rpr_node = cmds.shadingNode("RPRNormal", asUtility=True)
+			copyProperty(rpr_node, vrMaterial, 'color', 'base_bumpMap')
+			copyProperty(rpr_node, vrMaterial, 'strength', 'base_bumpMult')
+			setProperty(rprMaterial, 'normalMapEnable', 1)
+			connectProperty(rpr_node, 'out', rprMaterial, 'normalMap')
+
+		if not getProperty(vrMaterial, 'base_trace_reflections'):
+			setProperty(rprMaterial, 'reflectMetalness', 0)
+
 		# coat
-		setProperty(rprMaterial, 'clearCoat', 1)
-		copyProperty(rprMaterial, vrMaterial, 'coatWeight', 'coat_strength')
-		setProperty(rprMaterial, 'coatWeight', 1)
-		copyProperty(rprMaterial, vrMaterial, 'coatColor', 'coat_color') 
-		invertValue(rprMaterial, vrMaterial, 'coatRoughness', 'coat_glossiness')
+		if getProperty(vrMaterial, 'coat_trace_reflections'):
+
+			copyProperty(rprMaterial, vrMaterial, 'coatWeight', 'coat_strength')
+			copyProperty(rprMaterial, vrMaterial, 'coatColor', 'coat_color') 
+			invertValue(rprMaterial, vrMaterial, 'coatRoughness', 'coat_glossiness')
+
+			coat_bumpMapType = getProperty(vrMaterial, 'coat_bumpMapType')
+			if coat_bumpMapType in (0, 1):
+				if coat_bumpMapType == 0:
+					rpr_node = cmds.shadingNode("RPRBump", asUtility=True)
+				elif coat_bumpMapType == 1:
+					rpr_node = cmds.shadingNode("RPRNormal", asUtility=True)
+				copyProperty(rpr_node, vrMaterial, 'color', 'coat_bumpMap')
+				copyProperty(rpr_node, vrMaterial, 'strength', 'coat_bumpMult')
+				setProperty(rprMaterial, 'coatUseShaderNormal', 0)
+				connectProperty(rpr_node, 'out', rprMaterial, 'normalMap')
+
+		else:
+			setProperty(rprMaterial, 'clearCoat', 0)
+
+		if getProperty(vrMaterial, 'coat_trace_reflections') and getProperty(vrMaterial, 'coat_strength') > 0:
+			blend_material = cmds.shadingNode("RPRBlendMaterial", asShader=True)
+			blend_sg = blend_material + "SG"
+			cmds.sets(renderable=True, noSurfaceShader=True, empty=True, name=blend_material)
+			connectProperty(blend_material, "outColor", blend_sg, "surfaceShader")
+
+			metal_uber = cmds.shadingNode("RPRUberMaterial", asShader=True)
+			setProperty(metal_uber, 'reflections', 1)
+			setProperty(metal_uber, 'reflectRoughness', 0)
+			setProperty(metal_uber, 'reflectMetalMaterial', 1)
+			setProperty(metal_uber, 'reflectMetalness', 1)
+
+			connectProperty(rprMaterial, 'outColor', blend_material, 'color0')
+			connectProperty(metal_uber, 'outColor', blend_material, 'color1')
+			copyProperty(blend_material, vrMaterial, 'weight', 'coat_strength')
+
+			rprMaterial = blend_material
+
 
 		end_log(vrMaterial)
 
