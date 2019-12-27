@@ -1301,6 +1301,8 @@ def convertVRayLightMtl(vrMaterial, source):
 		# Logging to file
 		start_log(vrMaterial, rprMaterial)
 
+		setProperty(rprMaterial, 'diffuse', 0)
+
 		setProperty(rprMaterial, 'emissive', 1)
 		colorMode = getProperty(vrMaterial, 'colorMode')
 		if colorMode:
@@ -1308,6 +1310,9 @@ def convertVRayLightMtl(vrMaterial, source):
 		else:
 			copyProperty(rprMaterial, vrMaterial, 'emissiveColor', 'color')
 		copyProperty(rprMaterial, vrMaterial, 'emissiveIntensity', 'colorMultiplier')
+
+		if getProperty(vrMaterial, 'emitOnBackSide'):
+			setProperty(rprMaterial, 'emissiveDoubleSided', 1)
 
 		# opacity
 		opacity_color = getProperty(vrMaterial, "opacity")
@@ -1318,6 +1323,14 @@ def convertVRayLightMtl(vrMaterial, source):
 			else:
 				invertValue(rprMaterial, vrMaterial, "transparencyLevel", "opacity")
 			setProperty(rprMaterial, "transparencyEnable", 1)
+
+		if getProperty(vrMaterial, 'multiplyColorByOpacity'):
+			mult_color_by_opacity = cmds.shadingNode("RPRArithmetic", asUtility=True)
+			mult_color_by_opacity = cmds.rename(mult_color_by_opacity, 'mult_color_by_opacity')
+			setProperty(mult_color_by_opacity, 'operation', 2)
+			copyProperty(mult_color_by_opacity, rprMaterial, 'inputA', 'emissiveColor')
+			copyProperty(mult_color_by_opacity, rprMaterial, 'inputB', 'transparencyLevel')
+			connectProperty(mult_color_by_opacity, 'out', rprMaterial, 'emissiveColor')
 
 		end_log(vrMaterial)
 
