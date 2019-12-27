@@ -1305,7 +1305,7 @@ def convertVRayCarPaintMtl(vrMaterial, source):
 		if getProperty(vrMaterial, 'coat_trace_reflections') and getProperty(vrMaterial, 'coat_strength') > 0:
 			blend_material = cmds.shadingNode("RPRBlendMaterial", asShader=True)
 			blend_sg = blend_material + "SG"
-			cmds.sets(renderable=True, noSurfaceShader=True, empty=True, name=blend_material)
+			cmds.sets(renderable=True, noSurfaceShader=True, empty=True, name=blend_sg)
 			connectProperty(blend_material, "outColor", blend_sg, "surfaceShader")
 
 			metal_uber = cmds.shadingNode("RPRUberMaterial", asShader=True)
