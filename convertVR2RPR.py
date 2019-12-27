@@ -917,9 +917,9 @@ def convertVRayMtl(vrMaterial, source):
 			connectProperty(rprMaterial, "outColor", sg, "surfaceShader")
 			
 		# Enable properties, which are default in VRay
-		defaultEnable(rprMaterial, vrMaterial, "diffuse", "diffuseColorAmount")
-		defaultEnable(rprMaterial, vrMaterial, "reflections", "reflectionColorAmount")
-		defaultEnable(rprMaterial, vrMaterial, "refraction", "refractionColorAmount")
+		defaultEnable(rprMaterial, vrMaterial, "diffuse", "diffuseColorAmount", "color")
+		defaultEnable(rprMaterial, vrMaterial, "reflections", "reflectionColorAmount", "reflectionColor")
+		defaultEnable(rprMaterial, vrMaterial, "refraction", "refractionColorAmount", "fogColor")
 		
 		# Logging to file
 		start_log(vrMaterial, rprMaterial)
@@ -1019,16 +1019,17 @@ def convertVRayMtl(vrMaterial, source):
 			setProperty(rprMaterial, 'sssEnable', 1)
 
 		# bump
-		bumpMapType = getProperty(vrMaterial, 'bumpMapType')
-		if bumpMapType in (0, 1):
-			if bumpMapType == 0:
-				rpr_node = cmds.shadingNode("RPRBump", asUtility=True)
-			elif bumpMapType == 1:
-				rpr_node = cmds.shadingNode("RPRNormal", asUtility=True)
-			copyProperty(rpr_node, vrMaterial, 'color', 'bumpMap')
-			copyProperty(rpr_node, vrMaterial, 'strength', 'bumpMult')
-			setProperty(rprMaterial, 'normalMapEnable', 1)
-			connectProperty(rpr_node, 'out', rprMaterial, 'normalMap')
+		if not mapDoesNotExist(vrMaterial, 'bumpMap') and source != 'blend_bump':
+			bumpMapType = getProperty(vrMaterial, 'bumpMapType')
+			if bumpMapType in (0, 1):
+				if bumpMapType == 0:
+					rpr_node = cmds.shadingNode("RPRBump", asUtility=True)
+				elif bumpMapType == 1:
+					rpr_node = cmds.shadingNode("RPRNormal", asUtility=True)
+				copyProperty(rpr_node, vrMaterial, 'color', 'bumpMap')
+				copyProperty(rpr_node, vrMaterial, 'strength', 'bumpMult')
+				setProperty(rprMaterial, 'normalMapEnable', 1)
+				connectProperty(rpr_node, 'out', rprMaterial, 'normalMap')
 
 		end_log(vrMaterial)
 
@@ -1062,9 +1063,8 @@ def convertVRayAlSurface(vrMaterial, source):
 		start_log(vrMaterial, rprMaterial)
 
 		# Enable properties, which are default in VRay
-		defaultEnable(rprMaterial, vrMaterial, "diffuse", "diffuseStrength")
-		defaultEnable(rprMaterial, vrMaterial, "reflections", "reflect1Strength")
-		defaultEnable(rprMaterial, vrMaterial, "sssEnable", "sssMix")		
+		defaultEnable(rprMaterial, vrMaterial, "diffuse", "diffuseStrength", "diffuse")
+		defaultEnable(rprMaterial, vrMaterial, "reflections", "reflect1Strength", "reflect1")
 
 		# opacity
 		opacity = getProperty(vrMaterial, "opacity")
@@ -1080,16 +1080,17 @@ def convertVRayAlSurface(vrMaterial, source):
 		copyProperty(rprMaterial, vrMaterial, "diffuseColor", "diffuse")
 		copyProperty(rprMaterial, vrMaterial, "diffuseWeight", "diffuseStrength")
 
-		diffuseBumpType = getProperty(vrMaterial, 'diffuseBumpType')
-		if diffuseBumpType in (0, 1):
-			if diffuseBumpType == 0:
-				rpr_node = cmds.shadingNode("RPRBump", asUtility=True)
-			elif diffuseBumpType == 1:
-				rpr_node = cmds.shadingNode("RPRNormal", asUtility=True)
-			copyProperty(rpr_node, vrMaterial, 'color', 'diffuseBumpMap')
-			copyProperty(rpr_node, vrMaterial, 'strength', 'diffuseBumpAmount')
-			setProperty(rprMaterial, 'useShaderNormal', 0)
-			connectProperty(rpr_node, 'out', rprMaterial, 'diffuseNormal')
+		if not mapDoesNotExist(vrMaterial, 'diffuseBumpMap'):
+			diffuseBumpType = getProperty(vrMaterial, 'diffuseBumpType')
+			if diffuseBumpType in (0, 1):
+				if diffuseBumpType == 0:
+					rpr_node = cmds.shadingNode("RPRBump", asUtility=True)
+				elif diffuseBumpType == 1:
+					rpr_node = cmds.shadingNode("RPRNormal", asUtility=True)
+				copyProperty(rpr_node, vrMaterial, 'color', 'diffuseBumpMap')
+				copyProperty(rpr_node, vrMaterial, 'strength', 'diffuseBumpAmount')
+				setProperty(rprMaterial, 'useShaderNormal', 0)
+				connectProperty(rpr_node, 'out', rprMaterial, 'diffuseNormal')
 
 		# refl
 		copyProperty(rprMaterial, vrMaterial, "reflectColor", "reflect1")
@@ -1097,19 +1098,22 @@ def convertVRayAlSurface(vrMaterial, source):
 		copyProperty(rprMaterial, vrMaterial, "reflectRoughness", "reflect1Roughness")
 		copyProperty(rprMaterial, vrMaterial, "reflectIOR", "reflect1IOR")
 
-		reflect1BumpType = getProperty(vrMaterial, 'reflect1BumpType')
-		if reflect1BumpType in (0, 1):
-			if reflect1BumpType == 0:
-				rpr_node = cmds.shadingNode("RPRBump", asUtility=True)
-			elif reflect1BumpType == 1:
-				rpr_node = cmds.shadingNode("RPRNormal", asUtility=True)
-			copyProperty(rpr_node, vrMaterial, 'color', 'reflect1BumpMap')
-			copyProperty(rpr_node, vrMaterial, 'strength', 'reflect1BumpAmount')
-			setProperty(rprMaterial, 'reflectUseShaderNormal', 0)
-			connectProperty(rpr_node, 'out', rprMaterial, 'reflectNormal')
+		if not mapDoesNotExist(vrMaterial, 'reflect1BumpMap'):
+			reflect1BumpType = getProperty(vrMaterial, 'reflect1BumpType')
+			if reflect1BumpType in (0, 1):
+				if reflect1BumpType == 0:
+					rpr_node = cmds.shadingNode("RPRBump", asUtility=True)
+				elif reflect1BumpType == 1:
+					rpr_node = cmds.shadingNode("RPRNormal", asUtility=True)
+				copyProperty(rpr_node, vrMaterial, 'color', 'reflect1BumpMap')
+				copyProperty(rpr_node, vrMaterial, 'strength', 'reflect1BumpAmount')
+				setProperty(rprMaterial, 'reflectUseShaderNormal', 0)
+				connectProperty(rpr_node, 'out', rprMaterial, 'reflectNormal')
 
 		# sss
 		copyProperty(rprMaterial, vrMaterial, 'sssWeight', 'sssMix')
+		if getProperty(vrMaterial, 'sssMix') > 0:
+			setProperty(rprMaterial, 'sssEnable', 1)
 
 		# sss1
 		sss1_rad_x_den_scale = cmds.shadingNode("RPRArithmetic", asUtility=True)
@@ -1211,16 +1215,17 @@ def convertVRayAlSurface(vrMaterial, source):
 		connectProperty(high_and_mid_with_low_weight, 'out', rprMaterial, 'volumeScatter')
 
 		# bump
-		bumpType = getProperty(vrMaterial, 'bumpType')
-		if bumpType in (0, 1):
-			if bumpType == 0:
-				rpr_node = cmds.shadingNode("RPRBump", asUtility=True)
-			elif bumpType == 1:
-				rpr_node = cmds.shadingNode("RPRNormal", asUtility=True)
-			copyProperty(rpr_node, vrMaterial, 'color', 'bumpMap')
-			copyProperty(rpr_node, vrMaterial, 'strength', 'bumpAmount')
-			setProperty(rprMaterial, 'normalMapEnable', 1)
-			connectProperty(rpr_node, 'out', rprMaterial, 'normalMap')
+		if not mapDoesNotExist(vrMaterial, 'bumpMap'):
+			bumpType = getProperty(vrMaterial, 'bumpType')
+			if bumpType in (0, 1):
+				if bumpType == 0:
+					rpr_node = cmds.shadingNode("RPRBump", asUtility=True)
+				elif bumpType == 1:
+					rpr_node = cmds.shadingNode("RPRNormal", asUtility=True)
+				copyProperty(rpr_node, vrMaterial, 'color', 'bumpMap')
+				copyProperty(rpr_node, vrMaterial, 'strength', 'bumpAmount')
+				setProperty(rprMaterial, 'normalMapEnable', 1)
+				connectProperty(rpr_node, 'out', rprMaterial, 'normalMap')
 
 
 
@@ -1255,7 +1260,7 @@ def convertVRayCarPaintMtl(vrMaterial, source):
 		# Logging to file
 		start_log(vrMaterial, rprMaterial)
 
-		defaultEnable(rprMaterial, vrMaterial, "clearCoat", "coat_strength")		
+		defaultEnable(rprMaterial, vrMaterial, "clearCoat", "coat_strength", "coat_color")		
 
 		# diffuse parameters
 		copyProperty(rprMaterial, vrMaterial, "diffuseColor", "color")
@@ -1267,16 +1272,17 @@ def convertVRayCarPaintMtl(vrMaterial, source):
 		copyProperty(rprMaterial, vrMaterial, 'reflectMetalness', 'base_reflection')
 		invertValue(rprMaterial, vrMaterial, 'reflectRoughness', 'base_glossiness')
 
-		base_bumpMapType = getProperty(vrMaterial, 'base_bumpMapType')
-		if base_bumpMapType in (0, 1):
-			if base_bumpMapType == 0:
-				rpr_node = cmds.shadingNode("RPRBump", asUtility=True)
-			elif base_bumpMapType == 1:
-				rpr_node = cmds.shadingNode("RPRNormal", asUtility=True)
-			copyProperty(rpr_node, vrMaterial, 'color', 'base_bumpMap')
-			copyProperty(rpr_node, vrMaterial, 'strength', 'base_bumpMult')
-			setProperty(rprMaterial, 'normalMapEnable', 1)
-			connectProperty(rpr_node, 'out', rprMaterial, 'normalMap')
+		if not mapDoesNotExist(vrMaterial, 'base_bumpMap'):
+			base_bumpMapType = getProperty(vrMaterial, 'base_bumpMapType')
+			if base_bumpMapType in (0, 1):
+				if base_bumpMapType == 0:
+					rpr_node = cmds.shadingNode("RPRBump", asUtility=True)
+				elif base_bumpMapType == 1:
+					rpr_node = cmds.shadingNode("RPRNormal", asUtility=True)
+				copyProperty(rpr_node, vrMaterial, 'color', 'base_bumpMap')
+				copyProperty(rpr_node, vrMaterial, 'strength', 'base_bumpMult')
+				setProperty(rprMaterial, 'normalMapEnable', 1)
+				connectProperty(rpr_node, 'out', rprMaterial, 'normalMap')
 
 		if not getProperty(vrMaterial, 'base_trace_reflections'):
 			setProperty(rprMaterial, 'reflectMetalness', 0)
@@ -1288,16 +1294,17 @@ def convertVRayCarPaintMtl(vrMaterial, source):
 			copyProperty(rprMaterial, vrMaterial, 'coatColor', 'coat_color') 
 			invertValue(rprMaterial, vrMaterial, 'coatRoughness', 'coat_glossiness')
 
-			coat_bumpMapType = getProperty(vrMaterial, 'coat_bumpMapType')
-			if coat_bumpMapType in (0, 1):
-				if coat_bumpMapType == 0:
-					rpr_node = cmds.shadingNode("RPRBump", asUtility=True)
-				elif coat_bumpMapType == 1:
-					rpr_node = cmds.shadingNode("RPRNormal", asUtility=True)
-				copyProperty(rpr_node, vrMaterial, 'color', 'coat_bumpMap')
-				copyProperty(rpr_node, vrMaterial, 'strength', 'coat_bumpMult')
-				setProperty(rprMaterial, 'coatUseShaderNormal', 0)
-				connectProperty(rpr_node, 'out', rprMaterial, 'normalMap')
+			if not mapDoesNotExist(vrMaterial, 'coat_bumpMap'):
+				coat_bumpMapType = getProperty(vrMaterial, 'coat_bumpMapType')
+				if coat_bumpMapType in (0, 1):
+					if coat_bumpMapType == 0:
+						rpr_node = cmds.shadingNode("RPRBump", asUtility=True)
+					elif coat_bumpMapType == 1:
+						rpr_node = cmds.shadingNode("RPRNormal", asUtility=True)
+					copyProperty(rpr_node, vrMaterial, 'color', 'coat_bumpMap')
+					copyProperty(rpr_node, vrMaterial, 'strength', 'coat_bumpMult')
+					setProperty(rprMaterial, 'coatUseShaderNormal', 0)
+					connectProperty(rpr_node, 'out', rprMaterial, 'normalMap')
 
 		else:
 			setProperty(rprMaterial, 'clearCoat', 0)
@@ -1537,7 +1544,8 @@ def convertVRayBumpMtl(vrMaterial, source):
 	if cmds.objExists(baseMtl + "_rpr"):
 		rprMaterial = baseMtl + "_rpr"
 	else:
-		rprMaterial = convertMaterial(baseMtl, "")
+		# script will return material.blend_bump, we need only material name
+		rprMaterial = convertMaterial(baseMtl, "blend_bump").split('.')[0]
 
 		start_log(vrMaterial, rprMaterial)
 
@@ -1548,16 +1556,31 @@ def convertVRayBumpMtl(vrMaterial, source):
 		materialType = cmds.objectType(rprMaterial)
 		if materialType == 'RPRUberMaterial':
 			if not mapDoesNotExist(vrMaterial, 'bumpMap'):
-				if mapDoesNotExist(rprMaterial, 'normalMap'):
+				base_mtl_map_type = getProperty(baseMtl, 'bumpMapType')
+				bump_map_type = getProperty(vrMaterial, 'bumpMapType')
+				if mapDoesNotExist(baseMtl, 'bumpMap') or base_mtl_map_type != bump_map_type:
+					print('here0')
 					setProperty(rprMaterial,'normalMapEnable', 1)
 					copyProperty(rprMaterial, vrMaterial, 'normalMap', 'bumpMap')
 				else:
-					bumps_blend = cmds.shadingNode("RPRBlendValue", asUtility=True)
-					bumps_blend = cmds.rename(bumps_blend, "Blend bumps")
-					copyProperty(bumps_blend, rprMaterial, 'inputA', 'normalMap')
-					copyProperty(bumps_blend, vrMaterial, 'inputB', 'bumpMap')
-					setProperty(rprMaterial,'normalMapEnable', 1)
-					connectProperty(bumps_blend, 'out', rprMaterial, 'normalMap')
+					print('here')
+					if base_mtl_map_type in (0, 1):
+						if base_mtl_map_type == 0:
+							map_node = cmds.shadingNode("RPRBump", asUtility=True)
+						elif base_mtl_map_type == 1:
+							map_node = cmds.shadingNode("RPRNormal", asUtility=True)
+
+						print('here2')
+
+						bumps_blend = cmds.shadingNode("RPRBlendValue", asUtility=True)
+						bumps_blend = cmds.rename(bumps_blend, "Blend bumps")
+						copyProperty(bumps_blend, baseMtl, 'inputA', 'bumpMap')
+						copyProperty(bumps_blend, vrMaterial, 'inputB', 'bumpMap')
+						setProperty(bumps_blend, "weight", 0.2)
+						connectProperty(bumps_blend, 'out', map_node, 'color')
+
+						setProperty(rprMaterial,'normalMapEnable', 1)
+						connectProperty(map_node, 'out', rprMaterial, 'normalMap')
 
 		end_log(vrMaterial)
 
@@ -1852,26 +1875,12 @@ def checkAssign(material):
 	return 0
 
 
-def defaultEnable(RPRmaterial, VRmaterial, enable, value):
+def defaultEnable(RPRmaterial, VRmaterial, enable, weight, color):
 
-	weight = getProperty(VRmaterial, value)
-	if weight > 0:
-		setProperty(RPRmaterial, enable, 1)
-	else:
+	weight = getProperty(VRmaterial, weight)
+	color = getProperty(VRmaterial, color)
+	if color == (0, 0, 0) or weight == 0:
 		setProperty(RPRmaterial, enable, 0)
-
-
-def defaultEnableByColor(RPRmaterial, VRmaterial, enable, value):
-
-	if mapDoesNotExist(VRmaterial, value):
-		vr_value = getProperty(VRmaterial, value)
-		vr_value_type = type(vr_value)
-		if vr_value_type == tuple:
-			if vr_value[0] > 0 and vr_value[1] > 0 and vr_value[2] > 0:
-				setProperty(RPRmaterial, enable, 1)
-		elif vr_value_type == float:
-			if vr_value > 0:
-				setProperty(RPRmaterial, enable, 1)
 	else:
 		setProperty(RPRmaterial, enable, 1)
 
