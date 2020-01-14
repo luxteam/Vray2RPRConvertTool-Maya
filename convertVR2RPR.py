@@ -94,6 +94,8 @@ def copyProperty(rpr_name, conv_name, rpr_attr, conv_attr):
 				conv_attr = "diffuseColor"
 			elif cmds.objectType(conv_name) == 'VRayCarPaintMtl' and conv_attr == 'color':
 				conv_attr = "base_color"
+			elif cmds.objectType(conv_name) in ('VRayLightRectShape', 'VRayLightSphereShape') and conv_attr == 'lightColor':
+				conv_attr = "color"
 			conv_field = conv_name + "." + conv_attr
 
 			# RGB (vray)
@@ -1559,18 +1561,14 @@ def convertVRayBumpMtl(vrMaterial, source):
 				base_mtl_map_type = getProperty(baseMtl, 'bumpMapType')
 				bump_map_type = getProperty(vrMaterial, 'bumpMapType')
 				if mapDoesNotExist(baseMtl, 'bumpMap') or base_mtl_map_type != bump_map_type:
-					print('here0')
 					setProperty(rprMaterial,'normalMapEnable', 1)
 					copyProperty(rprMaterial, vrMaterial, 'normalMap', 'bumpMap')
 				else:
-					print('here')
 					if base_mtl_map_type in (0, 1):
 						if base_mtl_map_type == 0:
 							map_node = cmds.shadingNode("RPRBump", asUtility=True)
 						elif base_mtl_map_type == 1:
 							map_node = cmds.shadingNode("RPRNormal", asUtility=True)
-
-						print('here2')
 
 						bumps_blend = cmds.shadingNode("RPRBlendValue", asUtility=True)
 						bumps_blend = cmds.rename(bumps_blend, "Blend bumps")
@@ -1616,6 +1614,8 @@ def convertVRayLightDomeShape(dome_light):
 	invisible = getProperty(dome_light, 'invisible')
 	if invisible:
 		setProperty(iblShape, 'display', 0)
+	else:
+		setProperty(iblShape, 'display', 1)
 		   
 	# Logging to file
 	end_log(dome_light) 
@@ -1623,7 +1623,7 @@ def convertVRayLightDomeShape(dome_light):
 
 def convertVRayLightIESShape(vr_light): 
 
-	# Redshift light transform
+	# Vray light transform
 	splited_name = vr_light.split("|")
 	vrTransform = "|".join(splited_name[0:-1])
 	group = "|".join(splited_name[0:-2])
@@ -1662,6 +1662,158 @@ def convertVRayLightIESShape(vr_light):
 	copyProperty(rprTransform, vrTransform, "rotate", "rotate")
 	copyProperty(rprTransform, vrTransform, "scale", "scale")
 
+	copyProperty(rprLightShape, vr_light, 'visibility', 'display')
+
+	# Logging to file
+	end_log(vr_light) 
+
+
+def convertVRayLightRectShape(vr_light): 
+
+	# Redshift light transform
+	splited_name = vr_light.split("|")
+	vrTransform = "|".join(splited_name[0:-1])
+	group = "|".join(splited_name[0:-2])
+
+	if cmds.objExists(vrTransform + "_rpr"):
+		rprTransform = vrTransform + "_rpr"
+		rprLightShape = cmds.listRelatives(rprTransform)[0]
+	else: 
+		rprLightShape = cmds.createNode("RPRPhysicalLight", n="RPRPhysicalLightShape")
+		rprLightShape = cmds.rename(rprLightShape, splited_name[-1] + "_rpr")
+		rprTransform = cmds.listRelatives(rprLightShape, p=True)[0]
+		rprTransform = cmds.rename(rprTransform, splited_name[-2] + "_rpr")
+		rprLightShape = cmds.listRelatives(rprTransform)[0]
+
+		if group:
+			cmds.parent(rprTransform, group)
+
+		rprTransform = group + "|" + rprTransform
+		rprLightShape = rprTransform + "|" + rprLightShape
+
+	# Logging to file 
+	start_log(vr_light, rprLightShape)
+
+	# Copy properties from vrLight
+
+	light_units = getProperty(vr_light, 'units')
+	if light_units in (0, 1, 4):
+		setProperty(rprLightShape, 'intensityUnits', 1)
+		copyProperty(rprLightShape, vr_light, 'lightIntensity', 'intensityMult')
+	elif light_units == 2:
+		setProperty(rprLightShape, 'intensityUnits', 1)
+		setProperty(rprLightShape, 'lightIntensity', getProperty(vr_light, 'intensityMult') / 1000)
+	elif light_units == 3:
+		setProperty(rprLightShape, 'intensityUnits', 2)
+		copyProperty(rprLightShape, vr_light, 'lightIntensity', 'intensityMult')
+
+	if getProperty(vr_light, 'shapeType'):
+		setProperty(rprLightShape, 'areaLightShape', 0)
+		copyProperty(rprTransform, vr_light, 'scaleX', 'uSize')
+		copyProperty(rprTransform, vr_light, 'scaleY', 'uSize')
+	else:
+		setProperty(rprLightShape, 'areaLightShape', 3)
+		copyProperty(rprTransform, vr_light, 'scaleX', 'uSize')
+		copyProperty(rprTransform, vr_light, 'scaleY', 'vSize')
+
+	copyProperty(rprLightShape, vr_light, 'colorMode', 'colorMode')
+	copyProperty(rprLightShape, vr_light, 'temperature', 'temperature')
+	copyProperty(rprLightShape, vr_light, 'colorPicker', 'lightColor')
+
+	if getProperty(vr_light, 'useRectTex'):
+		rectTex_mult_rectTexA = cmds.shadingNode("RPRArithmetic", asUtility=True)
+		setProperty(rectTex_mult_rectTexA, 'operation', 2)
+		copyProperty(rectTex_mult_rectTexA, vr_light, 'inputA', 'rectTex')
+		copyProperty(rectTex_mult_rectTexA, vr_light, 'inputB', 'rectTexA')
+		if getProperty(vr_light, 'multiplyByTheLightColor'):
+			multiplyByTheLightColor = cmds.shadingNode("RPRArithmetic", asUtility=True)
+			setProperty(multiplyByTheLightColor, 'operation', 2)
+			copyProperty(multiplyByTheLightColor, vr_light, 'inputA', 'lightColor')
+			connectProperty(rectTex_mult_rectTexA, 'out', multiplyByTheLightColor, 'inputB')
+			connectProperty(multiplyByTheLightColor, 'out', rprLightShape, 'colorPicker')
+		else:
+			connectProperty(rectTex_mult_rectTexA, 'out', rprLightShape, 'colorPicker')
+
+	copyProperty(rprTransform, vrTransform, "translate", "translate")
+	copyProperty(rprTransform, vrTransform, "rotate", "rotate")
+
+	if getProperty(vr_light, 'invisible'):
+		setProperty(rprLightShape, 'areaLightVisible', 0)
+	else:
+		setProperty(rprLightShape, 'areaLightVisible', 1)
+
+	# Logging to file
+	end_log(vr_light) 
+
+
+def convertVRayLightSphereShape(vr_light): 
+
+	# Redshift light transform
+	splited_name = vr_light.split("|")
+	vrTransform = "|".join(splited_name[0:-1])
+	group = "|".join(splited_name[0:-2])
+
+	if cmds.objExists(vrTransform + "_rpr"):
+		rprTransform = vrTransform + "_rpr"
+		rprLightShape = cmds.listRelatives(rprTransform)[0]
+	else: 
+		rprLightShape = cmds.createNode("RPRPhysicalLight", n="RPRPhysicalLightShape")
+		rprLightShape = cmds.rename(rprLightShape, splited_name[-1] + "_rpr")
+		rprTransform = cmds.listRelatives(rprLightShape, p=True)[0]
+		rprTransform = cmds.rename(rprTransform, splited_name[-2] + "_rpr")
+		rprLightShape = cmds.listRelatives(rprTransform)[0]
+
+		if group:
+			cmds.parent(rprTransform, group)
+
+		rprTransform = group + "|" + rprTransform
+		rprLightShape = rprTransform + "|" + rprLightShape
+
+	# Logging to file 
+	start_log(vr_light, rprLightShape)
+
+	# Copy properties from vrLight
+
+	light_units = getProperty(vr_light, 'units')
+	if light_units in (0, 1, 4):
+		setProperty(rprLightShape, 'intensityUnits', 1)
+		copyProperty(rprLightShape, vr_light, 'lightIntensity', 'intensityMult')
+	elif light_units == 2:
+		setProperty(rprLightShape, 'intensityUnits', 1)
+		setProperty(rprLightShape, 'lightIntensity', getProperty(vr_light, 'intensityMult') / 1000)
+	elif light_units == 3:
+		setProperty(rprLightShape, 'intensityUnits', 2)
+		copyProperty(rprLightShape, vr_light, 'lightIntensity', 'intensityMult')
+
+	copyProperty(rprLightShape, vr_light, 'colorMode', 'colorMode')
+	copyProperty(rprLightShape, vr_light, 'temperature', 'temperature')
+	copyProperty(rprLightShape, vr_light, 'colorPicker', 'lightColor')
+
+	if getProperty(vr_light, 'invisible'):
+		setProperty(rprLightShape, 'areaLightVisible', 0)
+	else:
+		setProperty(rprLightShape, 'areaLightVisible', 1)
+
+	setProperty(rprLightShape, 'areaLightShape', 4)
+	sphere, polySphere = cmds.polySphere()
+
+	try:
+		cmds.select(clear=True)
+		setProperty(rprLightShape, "areaLightSelectingMesh", 1)
+		cmds.select(sphere)
+	except Exception as ex:
+		traceback.print_exc()
+		print("Failed to attach mesh to rpr physical light")
+
+	copyProperty(sphere, vrTransform, "translate", "translate")
+	copyProperty(sphere, vrTransform, "rotate", "rotate")
+	copyProperty(sphere, vrTransform, "scale", "scale")
+
+	copyProperty(polySphere, vr_light, 'radius', 'radius')
+	subdivision = int(math.modf(getProperty(vr_light, 'sphereSegments'))[1])
+	setProperty(polySphere, 'subdivisionsAxis', subdivision)
+	setProperty(polySphere, 'subdivisionsHeight', subdivision)
+	
 	# Logging to file
 	end_log(vr_light) 
 
@@ -1794,10 +1946,10 @@ def convertLight(light):
 		# VRay lights
 
 		"VRayLightDomeShape": convertVRayLightDomeShape,
-		#"VRayLightRectShape": convertVRayLightRectShape,
+		"VRayLightRectShape": convertVRayLightRectShape,
 		#"VRaySunShape": convertVRaySunShape,
 		#"VRaySky": convertVRaySky,
-		#"VRayLightSphereShape": convertVRayLightSphereShape,
+		"VRayLightSphereShape": convertVRayLightSphereShape,
 		#"VRayLightMeshLightLinking": convertVRayLightMeshLightLinking,
 		"VRayLightIESShape": convertVRayLightIESShape,
 
