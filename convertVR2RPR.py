@@ -94,7 +94,7 @@ def copyProperty(rpr_name, conv_name, rpr_attr, conv_attr):
 				conv_attr = "diffuseColor"
 			elif cmds.objectType(conv_name) == 'VRayCarPaintMtl' and conv_attr == 'color':
 				conv_attr = "base_color"
-			elif cmds.objectType(conv_name) in ('VRayLightRectShape', 'VRayLightSphereShape') and conv_attr == 'lightColor':
+			elif cmds.objectType(conv_name) in ('VRayLightRectShape', 'VRayLightSphereShape', 'VRayLightMesh') and conv_attr == 'lightColor':
 				conv_attr = "color"
 			conv_field = conv_name + "." + conv_attr
 
@@ -1818,6 +1818,79 @@ def convertVRayLightSphereShape(vr_light):
 	end_log(vr_light) 
 
 
+
+def convertVRayLightMeshLightLinking(vr_light): 
+
+	# Redshift light transform
+	splited_name = vr_light.split("|")
+	vrTransform = "|".join(splited_name[0:-1])
+	group = "|".join(splited_name[0:-2])
+
+	if cmds.objExists(vrTransform + "_rpr"):
+		rprTransform = vrTransform + "_rpr"
+		rprLightShape = cmds.listRelatives(rprTransform)[0]
+	else: 
+		rprLightShape = cmds.createNode("RPRPhysicalLight", n="RPRPhysicalLightShape")
+		rprLightShape = cmds.rename(rprLightShape, splited_name[-1] + "_rpr")
+		rprTransform = cmds.listRelatives(rprLightShape, p=True)[0]
+		rprTransform = cmds.rename(rprTransform, splited_name[-2] + "_rpr")
+		rprLightShape = cmds.listRelatives(rprTransform)[0]
+
+		if group:
+			cmds.parent(rprTransform, group)
+
+		rprTransform = group + "|" + rprTransform
+		rprLightShape = rprTransform + "|" + rprLightShape
+
+	# Logging to file 
+	start_log(vr_light, rprLightShape)
+
+	# Copy properties from vrLight
+	lightlink_transform = cmds.listRelatives(vr_light, p=True)[0]
+	vr_light = cmds.listConnections(lightlink_transform, type="VRayLightMesh")[0]
+
+	light_units = getProperty(vr_light, 'units')
+	if light_units in (0, 1, 4):
+		setProperty(rprLightShape, 'intensityUnits', 1)
+		copyProperty(rprLightShape, vr_light, 'lightIntensity', 'intensityMult')
+	elif light_units == 2:
+		setProperty(rprLightShape, 'intensityUnits', 1)
+		setProperty(rprLightShape, 'lightIntensity', getProperty(vr_light, 'intensityMult') / 1000)
+	elif light_units == 3:
+		setProperty(rprLightShape, 'intensityUnits', 2)
+		copyProperty(rprLightShape, vr_light, 'lightIntensity', 'intensityMult')
+
+	copyProperty(rprLightShape, vr_light, 'colorMode', 'colorMode')
+	copyProperty(rprLightShape, vr_light, 'temperature', 'temperature')
+	copyProperty(rprLightShape, vr_light, 'colorPicker', 'lightColor')
+
+	if getProperty(vr_light, 'invisible'):
+		setProperty(rprLightShape, 'areaLightVisible', 0)
+	else:
+		setProperty(rprLightShape, 'areaLightVisible', 1)
+
+	setProperty(rprLightShape, 'areaLightShape', 4)
+	mesh_obj = cmds.listConnections(vr_light, type='transform')
+
+	try:
+		cmds.select(clear=True)
+		setProperty(rprLightShape, "areaLightSelectingMesh", 1)
+		cmds.select(mesh_obj)
+	except Exception as ex:
+		traceback.print_exc()
+		print("Failed to attach mesh to rpr physical light")
+
+	if getProperty(vr_light, 'useTex'):
+		tex_mult = cmds.shadingNode("RPRArithmetic", asUtility=True)
+		setProperty(tex_mult, 'operation', 2)
+		copyProperty(tex_mult, vr_light, 'inputA', 'tex')
+		copyProperty(tex_mult, vr_light, 'inputB', 'texA')
+		connectProperty(tex_mult, 'out', rprLightShape, 'colorPicker')
+	
+	# Logging to file
+	end_log(vr_light) 
+
+
 def convertTemperature(temperature):
 	temperature = temperature / 100
 
@@ -1950,7 +2023,7 @@ def convertLight(light):
 		#"VRaySunShape": convertVRaySunShape,
 		#"VRaySky": convertVRaySky,
 		"VRayLightSphereShape": convertVRayLightSphereShape,
-		#"VRayLightMeshLightLinking": convertVRayLightMeshLightLinking,
+		"VRayLightMeshLightLinking": convertVRayLightMeshLightLinking,
 		"VRayLightIESShape": convertVRayLightIESShape,
 
 	}
@@ -1969,7 +2042,7 @@ def isVRayType(obj):
 
 def cleanScene():
 
-	listMaterials= cmds.ls(materials=True)
+	listMaterials = cmds.ls(materials=True)
 	for material in listMaterials:
 		if isVRayType(material):
 			shEng = cmds.listConnections(material, type="shadingEngine")
@@ -1980,12 +2053,14 @@ def cleanScene():
 				traceback.print_exc()
 
 	listLights = cmds.ls(l=True, type=["VRayLightRectShape", "VRayLightDomeShape", "VRaySunShape", "VRaySky", "VRaySunTarget", "VRayLightSphereShape", \
-		"VRayLightMeshLightLinking", "VRayLightIESShape"])
+		"VRayLightMeshLightLinking", "VRayLightMesh", "VRayLightIESShape"])
 	for light in listLights:
 		transform = cmds.listRelatives(light, p=True)
 		try:
+			light_type = cmds.objectType(light) 
 			cmds.delete(light)
-			cmds.delete(transform[0])
+			if light_type != "VRayLightMesh":
+				cmds.delete(transform[0])
 		except Exception as ex:
 			traceback.print_exc()
 
@@ -2029,9 +2104,7 @@ def checkAssign(material):
 
 def defaultEnable(RPRmaterial, VRmaterial, enable, weight, color):
 
-	weight = getProperty(VRmaterial, weight)
-	color = getProperty(VRmaterial, color)
-	if color == (0, 0, 0) or weight == 0:
+	if (getProperty(VRmaterial, color) == (0, 0, 0) or getProperty(VRmaterial, weight) == 0) and mapDoesNotExist(VRmaterial, color):
 		setProperty(RPRmaterial, enable, 0)
 	else:
 		setProperty(RPRmaterial, enable, 1)
