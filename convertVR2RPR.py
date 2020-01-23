@@ -89,7 +89,7 @@ def copyProperty(rpr_name, conv_name, rpr_attr, conv_attr):
 		# complex color conversion for each channel (RGB/XYZ/HSV)
 		elif not listConnections and vr_type == tuple:
 
-			# changing attr
+			# change attr for channel conversion in some cases
 			if cmds.objectType(conv_name) == 'VRayMtl' and conv_attr == 'color':
 				conv_attr = "diffuseColor"
 			elif cmds.objectType(conv_name) == 'VRayCarPaintMtl' and conv_attr == 'color':
@@ -98,7 +98,7 @@ def copyProperty(rpr_name, conv_name, rpr_attr, conv_attr):
 				conv_attr = "color"
 			conv_field = conv_name + "." + conv_attr
 
-			# RGB (vray)
+			# RGB 
 			if cmds.objExists(conv_field + "R") and cmds.objExists(rpr_field + "R"):
 				copyProperty(rpr_name, conv_name, rpr_attr + "R", conv_attr + "R")
 				copyProperty(rpr_name, conv_name, rpr_attr + "G", conv_attr + "G")
@@ -111,7 +111,7 @@ def copyProperty(rpr_name, conv_name, rpr_attr, conv_attr):
 				copyProperty(rpr_name, conv_name, rpr_attr + "H", conv_attr + "R")
 				copyProperty(rpr_name, conv_name, rpr_attr + "S", conv_attr + "G")
 				copyProperty(rpr_name, conv_name, rpr_attr + "V", conv_attr + "B")
-			# XYZ (vray)
+			# XYZ 
 			elif cmds.objExists(conv_field + "X") and cmds.objExists(rpr_field + "R"):
 				copyProperty(rpr_name, conv_name, rpr_attr + "R", conv_attr + "X")
 				copyProperty(rpr_name, conv_name, rpr_attr + "G", conv_attr + "Y")
@@ -124,7 +124,7 @@ def copyProperty(rpr_name, conv_name, rpr_attr, conv_attr):
 				copyProperty(rpr_name, conv_name, rpr_attr + "H", conv_attr + "X")
 				copyProperty(rpr_name, conv_name, rpr_attr + "S", conv_attr + "Y")
 				copyProperty(rpr_name, conv_name, rpr_attr + "V", conv_attr + "Z")
-			# HSV (vray)
+			# HSV 
 			elif cmds.objExists(conv_field + "H") and cmds.objExists(rpr_field + "R"):
 				copyProperty(rpr_name, conv_name, rpr_attr + "R", conv_attr + "H")
 				copyProperty(rpr_name, conv_name, rpr_attr + "G", conv_attr + "S")
@@ -1648,8 +1648,9 @@ def convertVRayLightIESShape(vr_light):
 	start_log(vr_light, rprLightShape)
 
 	# Copy properties from vrLight
+	vrayIntensity = getProperty(vr_light, 'intensityMult')
+	setProperty(rprLightShape, 'intensity', 19.9024909 * vrayIntensity ** 3 - 14.3247047 * vrayIntensity ** 2 + 3.4341693 * vrayIntensity + 0.0762945)
 
-	copyProperty(rprLightShape, vr_light, 'intensity', 'intensityMult')
 	colorMode = getProperty(vr_light, 'colorMode')
 	if colorMode:
 		setProperty(rprLightShape, 'color', convertTemperature(getProperty(vr_light, 'temperature')))
@@ -1659,7 +1660,9 @@ def convertVRayLightIESShape(vr_light):
 	setProperty(rprLightShape, "iesFile", getProperty(vr_light, "iesFile"))
 	
 	copyProperty(rprTransform, vrTransform, "translate", "translate")
-	copyProperty(rprTransform, vrTransform, "rotate", "rotate")
+	setProperty(rprTransform, 'rotateX', getProperty(vrTransform, 'rotateX') - 90)
+	copyProperty(rprTransform, vrTransform, "rotateY", "rotateY")
+	copyProperty(rprTransform, vrTransform, "rotateZ", "rotateZ")
 	copyProperty(rprTransform, vrTransform, "scale", "scale")
 
 	copyProperty(rprLightShape, vr_light, 'visibility', 'display')
@@ -1709,14 +1712,17 @@ def convertVRayLightRectShape(vr_light):
 
 	if getProperty(vr_light, 'shapeType'):
 		setProperty(rprLightShape, 'areaLightShape', 0)
-		copyProperty(rprTransform, vr_light, 'scaleX', 'uSize')
-		copyProperty(rprTransform, vr_light, 'scaleY', 'uSize')
+		setProperty(rprTransform, 'scaleX', getProperty(vr_light, 'uSize') * getProperty(vrTransform, 'scaleX'))
+		setProperty(rprTransform, 'scaleY', getProperty(vr_light, 'uSize') * getProperty(vrTransform, 'scaleY'))
 	else:
 		setProperty(rprLightShape, 'areaLightShape', 3)
-		copyProperty(rprTransform, vr_light, 'scaleX', 'uSize')
-		copyProperty(rprTransform, vr_light, 'scaleY', 'vSize')
+		setProperty(rprTransform, 'scaleX', getProperty(vr_light, 'uSize') * getProperty(vrTransform, 'scaleX'))
+		setProperty(rprTransform, 'scaleY', getProperty(vr_light, 'vSize') * getProperty(vrTransform, 'scaleY'))
 
 	copyProperty(rprLightShape, vr_light, 'colorMode', 'colorMode')
+	if getProperty(vr_light, 'colorMode') == 1:
+		mel.eval("onTemperatureChanged(\"{}\")".format(rprLightShape))
+
 	copyProperty(rprLightShape, vr_light, 'temperature', 'temperature')
 	copyProperty(rprLightShape, vr_light, 'colorPicker', 'lightColor')
 
@@ -1786,6 +1792,9 @@ def convertVRayLightSphereShape(vr_light):
 		copyProperty(rprLightShape, vr_light, 'lightIntensity', 'intensityMult')
 
 	copyProperty(rprLightShape, vr_light, 'colorMode', 'colorMode')
+	if getProperty(vr_light, 'colorMode') == 1:
+		mel.eval("onTemperatureChanged(\"{}\")".format(rprLightShape))
+
 	copyProperty(rprLightShape, vr_light, 'temperature', 'temperature')
 	copyProperty(rprLightShape, vr_light, 'colorPicker', 'lightColor')
 
@@ -1861,6 +1870,9 @@ def convertVRayLightMeshLightLinking(vr_light):
 		copyProperty(rprLightShape, vr_light, 'lightIntensity', 'intensityMult')
 
 	copyProperty(rprLightShape, vr_light, 'colorMode', 'colorMode')
+	if getProperty(vr_light, 'colorMode') == 1:
+		mel.eval("onTemperatureChanged(\"{}\")".format(rprLightShape))
+
 	copyProperty(rprLightShape, vr_light, 'temperature', 'temperature')
 	copyProperty(rprLightShape, vr_light, 'colorPicker', 'lightColor')
 
