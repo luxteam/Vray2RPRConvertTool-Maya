@@ -866,6 +866,46 @@ def convertVRayTemperature(vr, source):
 	return rpr
 
 
+def convertVRayFresnel(vr, source):
+
+	if cmds.objExists(vr + "_rpr"):
+		rpr = vr + "_rpr"
+	else:
+		rpr = cmds.shadingNode("RPRBlendValue", asUtility=True)
+		rpr = cmds.rename(rpr, vr + "_rpr")
+
+		# Logging to file
+		start_log(vr, rpr)
+
+		# Fields conversion
+		colorConstantFront = cmds.shadingNode("colorConstant", asUtility=True)
+		copyProperty(colorConstantFront, vr, 'inColor', 'frontColor')
+
+		colorConstantSide = cmds.shadingNode("colorConstant", asUtility=True)
+		copyProperty(colorConstantSide, vr, 'inColor', 'sideColor')
+
+		RPRFresnel = cmds.shadingNode("RPRFresnel", asUtility=True)
+		copyProperty(RPRFresnel, vr, 'ior', 'IOR')
+
+		connectProperty(colorConstantFront, 'outColor', rpr, 'inputA')
+		connectProperty(colorConstantSide, 'outColor', rpr, 'inputB')
+		connectProperty(RPRFresnel, 'out', rpr, 'weight')
+
+		# Logging to file
+		end_log(vr)
+
+	conversion_map = {
+		"outColor": "out",
+		"outColorR": "outR",
+		"outColorG": "outG",
+		"outColorB": "outB"
+	}
+
+	rpr += "." + conversion_map[source]
+	return rpr
+
+
+
 # Create default uber material for unsupported material
 def convertUnsupportedMaterial(vrayMaterial, source):
 
@@ -2006,7 +2046,8 @@ def convertMaterial(material, source):
 		"bump2d": convertbump2d,
 
 		# VRay utilities
-		"VRayTemperature": convertVRayTemperature
+		"VRayTemperature": convertVRayTemperature,
+		"VRayFresnel": convertVRayFresnel
 
 	}
 
