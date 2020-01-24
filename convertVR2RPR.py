@@ -94,7 +94,7 @@ def copyProperty(rpr_name, conv_name, rpr_attr, conv_attr):
 				conv_attr = "diffuseColor"
 			elif cmds.objectType(conv_name) == 'VRayCarPaintMtl' and conv_attr == 'color':
 				conv_attr = "base_color"
-			elif cmds.objectType(conv_name) in ('VRayLightRectShape', 'VRayLightSphereShape', 'VRayLightMesh') and conv_attr == 'lightColor':
+			elif cmds.objectType(conv_name) in ('VRayLightRectShape', 'VRayLightSphereShape', 'VRayLightMesh', 'VRayLightIESShape') and conv_attr == 'lightColor':
 				conv_attr = "color"
 			conv_field = conv_name + "." + conv_attr
 
@@ -961,7 +961,7 @@ def convertVRayMtl(vrMaterial, source):
 		# Enable properties, which are default in VRay
 		defaultEnable(rprMaterial, vrMaterial, "diffuse", "diffuseColorAmount", "color")
 		defaultEnable(rprMaterial, vrMaterial, "reflections", "reflectionColorAmount", "reflectionColor")
-		defaultEnable(rprMaterial, vrMaterial, "refraction", "refractionColorAmount", "fogColor")
+		defaultEnable(rprMaterial, vrMaterial, "refraction", "refractionColorAmount", "refractionColor")
 		
 		# Logging to file
 		start_log(vrMaterial, rprMaterial)
@@ -1001,10 +1001,7 @@ def convertVRayMtl(vrMaterial, source):
 		else:
 			invertValue(rprMaterial, vrMaterial, 'reflectRoughness', 'reflectionGlossiness')
 
-		lockFresnelIORToRefractionIOR = getProperty(vrMaterial, 'lockFresnelIORToRefractionIOR')
-		if lockFresnelIORToRefractionIOR:
-			setProperty(rprMaterial, 'refraction', 1)
-			setProperty(rprMaterial, 'refractLinkToReflect', 1)
+		copyProperty(rprMaterial, vrMaterial, 'refractLinkToReflect', 'lockFresnelIORToRefractionIOR')
 
 		fresnelIOR = getProperty(vrMaterial, 'fresnelIOR')
 		if mapDoesNotExist(vrMaterial, 'fresnelIOR') and fresnelIOR > 10:
@@ -1051,10 +1048,6 @@ def convertVRayMtl(vrMaterial, source):
 
 		if getProperty(vrMaterial, 'refractionIOR') == 1:
 			setProperty(rprMaterial, 'refractThinSurface', 1)
-
-		traceRefractions = getProperty(vrMaterial, 'traceRefractions')
-		if traceRefractions:
-			setProperty(rprMaterial, 'refraction', 1)
 
 		sssOn = getProperty(vrMaterial, 'sssOn')
 		if sssOn:
@@ -1705,7 +1698,7 @@ def convertVRayLightIESShape(vr_light):
 	copyProperty(rprTransform, vrTransform, "rotateZ", "rotateZ")
 	copyProperty(rprTransform, vrTransform, "scale", "scale")
 
-	copyProperty(rprLightShape, vr_light, 'visibility', 'display')
+	copyProperty(rprLightShape, vr_light, 'display', 'visibility')
 
 	# Logging to file
 	end_log(vr_light) 
@@ -1742,14 +1735,15 @@ def convertVRayLightRectShape(vr_light):
 	light_units = getProperty(vr_light, 'units')
 	if light_units in (0, 1, 4):
 		setProperty(rprLightShape, 'intensityUnits', 1)
-		copyProperty(rprLightShape, vr_light, 'lightIntensity', 'intensityMult')
+		copyProperty(rprLightShape, vr_light, 'intensity', 'intensityMult')
 	elif light_units == 2:
 		setProperty(rprLightShape, 'intensityUnits', 1)
-		setProperty(rprLightShape, 'lightIntensity', getProperty(vr_light, 'intensityMult') / 1000)
+		setProperty(rprLightShape, 'intensity', getProperty(vr_light, 'intensityMult') / 1000)
 	elif light_units == 3:
 		setProperty(rprLightShape, 'intensityUnits', 2)
-		copyProperty(rprLightShape, vr_light, 'lightIntensity', 'intensityMult')
+		copyProperty(rprLightShape, vr_light, 'intensity', 'intensityMult')
 
+	'''
 	if getProperty(vr_light, 'shapeType'):
 		setProperty(rprLightShape, 'areaLightShape', 0)
 		setProperty(rprTransform, 'scaleX', getProperty(vr_light, 'uSize') * getProperty(vrTransform, 'scaleX'))
@@ -1758,13 +1752,11 @@ def convertVRayLightRectShape(vr_light):
 		setProperty(rprLightShape, 'areaLightShape', 3)
 		setProperty(rprTransform, 'scaleX', getProperty(vr_light, 'uSize') * getProperty(vrTransform, 'scaleX'))
 		setProperty(rprTransform, 'scaleY', getProperty(vr_light, 'vSize') * getProperty(vrTransform, 'scaleY'))
+	'''
 
 	copyProperty(rprLightShape, vr_light, 'colorMode', 'colorMode')
-	if getProperty(vr_light, 'colorMode') == 1:
-		mel.eval("onTemperatureChanged(\"{}\")".format(rprLightShape))
-
 	copyProperty(rprLightShape, vr_light, 'temperature', 'temperature')
-	copyProperty(rprLightShape, vr_light, 'colorPicker', 'lightColor')
+	copyProperty(rprLightShape, vr_light, 'color', 'lightColor')
 
 	if getProperty(vr_light, 'useRectTex'):
 		rectTex_mult_rectTexA = cmds.shadingNode("RPRArithmetic", asUtility=True)
@@ -1776,12 +1768,13 @@ def convertVRayLightRectShape(vr_light):
 			setProperty(multiplyByTheLightColor, 'operation', 2)
 			copyProperty(multiplyByTheLightColor, vr_light, 'inputA', 'lightColor')
 			connectProperty(rectTex_mult_rectTexA, 'out', multiplyByTheLightColor, 'inputB')
-			connectProperty(multiplyByTheLightColor, 'out', rprLightShape, 'colorPicker')
+			connectProperty(multiplyByTheLightColor, 'out', rprLightShape, 'color')
 		else:
-			connectProperty(rectTex_mult_rectTexA, 'out', rprLightShape, 'colorPicker')
+			connectProperty(rectTex_mult_rectTexA, 'out', rprLightShape, 'color')
 
 	copyProperty(rprTransform, vrTransform, "translate", "translate")
 	copyProperty(rprTransform, vrTransform, "rotate", "rotate")
+	copyProperty(rprTransform, vrTransform, "scale", "scale")
 
 	if getProperty(vr_light, 'invisible'):
 		setProperty(rprLightShape, 'areaLightVisible', 0)
@@ -1823,20 +1816,20 @@ def convertVRayLightSphereShape(vr_light):
 	light_units = getProperty(vr_light, 'units')
 	if light_units in (0, 1, 4):
 		setProperty(rprLightShape, 'intensityUnits', 1)
-		copyProperty(rprLightShape, vr_light, 'lightIntensity', 'intensityMult')
+		copyProperty(rprLightShape, vr_light, 'intensity', 'intensityMult')
 	elif light_units == 2:
 		setProperty(rprLightShape, 'intensityUnits', 1)
-		setProperty(rprLightShape, 'lightIntensity', getProperty(vr_light, 'intensityMult') / 1000)
+		setProperty(rprLightShape, 'intensity', getProperty(vr_light, 'intensityMult') / 1000)
 	elif light_units == 3:
 		setProperty(rprLightShape, 'intensityUnits', 2)
-		copyProperty(rprLightShape, vr_light, 'lightIntensity', 'intensityMult')
+		copyProperty(rprLightShape, vr_light, 'intensity', 'intensityMult')
 
 	copyProperty(rprLightShape, vr_light, 'colorMode', 'colorMode')
 	if getProperty(vr_light, 'colorMode') == 1:
 		mel.eval("onTemperatureChanged(\"{}\")".format(rprLightShape))
 
 	copyProperty(rprLightShape, vr_light, 'temperature', 'temperature')
-	copyProperty(rprLightShape, vr_light, 'colorPicker', 'lightColor')
+	copyProperty(rprLightShape, vr_light, 'color', 'lightColor')
 
 	if getProperty(vr_light, 'invisible'):
 		setProperty(rprLightShape, 'areaLightVisible', 0)
@@ -1901,20 +1894,20 @@ def convertVRayLightMeshLightLinking(vr_light):
 	light_units = getProperty(vr_light, 'units')
 	if light_units in (0, 1, 4):
 		setProperty(rprLightShape, 'intensityUnits', 1)
-		copyProperty(rprLightShape, vr_light, 'lightIntensity', 'intensityMult')
+		copyProperty(rprLightShape, vr_light, 'intensity', 'intensityMult')
 	elif light_units == 2:
 		setProperty(rprLightShape, 'intensityUnits', 1)
-		setProperty(rprLightShape, 'lightIntensity', getProperty(vr_light, 'intensityMult') / 1000)
+		setProperty(rprLightShape, 'intensity', getProperty(vr_light, 'intensityMult') / 1000)
 	elif light_units == 3:
 		setProperty(rprLightShape, 'intensityUnits', 2)
-		copyProperty(rprLightShape, vr_light, 'lightIntensity', 'intensityMult')
+		copyProperty(rprLightShape, vr_light, 'intensity', 'intensityMult')
 
 	copyProperty(rprLightShape, vr_light, 'colorMode', 'colorMode')
 	if getProperty(vr_light, 'colorMode') == 1:
 		mel.eval("onTemperatureChanged(\"{}\")".format(rprLightShape))
 
 	copyProperty(rprLightShape, vr_light, 'temperature', 'temperature')
-	copyProperty(rprLightShape, vr_light, 'colorPicker', 'lightColor')
+	copyProperty(rprLightShape, vr_light, 'color', 'lightColor')
 
 	if getProperty(vr_light, 'invisible'):
 		setProperty(rprLightShape, 'areaLightVisible', 0)
@@ -1937,7 +1930,7 @@ def convertVRayLightMeshLightLinking(vr_light):
 		setProperty(tex_mult, 'operation', 2)
 		copyProperty(tex_mult, vr_light, 'inputA', 'tex')
 		copyProperty(tex_mult, vr_light, 'inputB', 'texA')
-		connectProperty(tex_mult, 'out', rprLightShape, 'colorPicker')
+		connectProperty(tex_mult, 'out', rprLightShape, 'color')
 	
 	# Logging to file
 	end_log(vr_light) 
@@ -2157,10 +2150,10 @@ def checkAssign(material):
 
 def defaultEnable(RPRmaterial, VRmaterial, enable, weight, color):
 
-	if (getProperty(VRmaterial, color) == (0, 0, 0) or getProperty(VRmaterial, weight) == 0) and mapDoesNotExist(VRmaterial, color):
-		setProperty(RPRmaterial, enable, 0)
-	else:
+	if (getProperty(VRmaterial, color) != (0, 0, 0) or not mapDoesNotExist(VRmaterial, color)) and getProperty(VRmaterial, weight):
 		setProperty(RPRmaterial, enable, 1)
+	else:
+		setProperty(RPRmaterial, enable, 0)
 
 
 def repathScene():
