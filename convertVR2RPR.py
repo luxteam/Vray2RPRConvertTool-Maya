@@ -1,13 +1,5 @@
 
-'''
-
-	Vray to RadeonProRender Converter
-
-	History:
-	v.1.0 - First version
-
-
-'''
+# Vray to RadeonProRender Converter
 
 import maya.mel as mel
 import maya.cmds as cmds
@@ -1502,6 +1494,90 @@ def convertVRayHairNextMtl(vrMaterial, source):
 
 
 ######################## 
+##  VRayFastSSS2
+########################
+
+def convertVRayFastSSS2(vrMaterial, source):
+
+	assigned = checkAssign(vrMaterial)
+	
+	if cmds.objExists(vrMaterial + "_rpr"):
+		rprMaterial = vrMaterial + "_rpr"
+	else:
+		# Creating new Uber material
+		rprMaterial = cmds.shadingNode("RPRUberMaterial", asShader=True)
+		rprMaterial = cmds.rename(rprMaterial, vrMaterial + "_rpr")
+
+		# Check shading engine in vrMaterial
+		if assigned:
+			sg = rprMaterial + "SG"
+			cmds.sets(renderable=True, noSurfaceShader=True, empty=True, name=sg)
+			connectProperty(rprMaterial, "outColor", sg, "surfaceShader")
+		
+		# Logging to file
+		start_log(vrMaterial, rprMaterial)
+
+		setProperty(rprMaterial, 'reflections', True)
+		copyProperty(rprMaterial, vrMaterial, 'reflectIOR', 'ior')
+		copyProperty(rprMaterial, vrMaterial, 'reflectColor', 'reflection')
+		copyProperty(rprMaterial, vrMaterial, 'reflectWeight', 'reflectionAmount')
+		invertValue(rprMaterial, vrMaterial, 'reflectRoughness', 'glossiness')
+
+		diffuse_color = cmds.shadingNode("RPRArithmetic", asUtility=True)
+		setProperty(diffuse_color, 'operation', 2)
+		copyProperty(diffuse_color, vrMaterial, 'inputA', 'diffuseTex')
+		copyProperty(diffuse_color, vrMaterial, 'inputB', 'overallTex')
+		connectProperty(diffuse_color, 'out', rprMaterial, 'diffuseColor')
+
+		copyProperty(rprMaterial, vrMaterial, 'diffuseWeight', 'diffuseAmount')
+		setProperty(rprMaterial, 'sssEnable', True)
+		setProperty(rprMaterial, 'separateBackscatterColor', True)
+
+		if getProperty(vrMaterial, 'colorMode'):
+			backscattering_color_mult = cmds.shadingNode("RPRArithmetic", asUtility=True)
+			setProperty(backscattering_color_mult, 'operation', 2)
+			copyProperty(backscattering_color_mult, vrMaterial, 'inputA', 'subsurfaceColor')
+			copyProperty(backscattering_color_mult, vrMaterial, 'inputB', 'overallTex')
+
+			backscattering_color_div = cmds.shadingNode("RPRArithmetic", asUtility=True)
+			setProperty(backscattering_color_div, 'operation', 3)
+			connectProperty(backscattering_color_mult, 'out', backscattering_color_div, 'inputA')
+			copyProperty(backscattering_color_div, vrMaterial, 'inputB', 'scatterRadiusColor')
+			connectProperty(backscattering_color_div, 'out', rprMaterial, 'backscatteringColor')
+
+			connectProperty(backscattering_color_div, 'out', rprMaterial, 'volumeScatter')
+		else:
+			backscattering_color_mult = cmds.shadingNode("RPRArithmetic", asUtility=True)
+			setProperty(backscattering_color, 'operation', 2)
+			copyProperty(backscattering_color, vrMaterial, 'inputA', 'subsurfaceColor')
+			copyProperty(backscattering_color, vrMaterial, 'inputB', 'scatterRadiusColor')
+			connectProperty(backscattering_color_mult, 'out', rprMaterial, 'backscatteringColor')
+			copyProperty(rprMaterial, vrMaterial, 'volumeScatter', 'scatterRadiusColor')
+
+		rpr_scatter_radius = getProperty(vrMaterial, 'scatterRadiusMult') / getProperty(vrMaterial, 'scale')
+		setProperty(rprMaterial, 'subsurfaceRadius', (rpr_scatter_radius, rpr_scatter_radius, rpr_scatter_radius))
+
+		# bump
+		if not mapDoesNotExist(vrMaterial, 'bumpMap'):
+			bumpType = getProperty(vrMaterial, 'bumpType')
+			if bumpType in (0, 1):
+				if bumpType == 0:
+					rpr_node = cmds.shadingNode("RPRBump", asUtility=True)
+				elif bumpType == 1:
+					rpr_node = cmds.shadingNode("RPRNormal", asUtility=True)
+				copyProperty(rpr_node, vrMaterial, 'color', 'bumpMap')
+				copyProperty(rpr_node, vrMaterial, 'strength', 'bumpAmount')
+				setProperty(rprMaterial, 'normalMapEnable', 1)
+				connectProperty(rpr_node, 'out', rprMaterial, 'normalMap')
+
+		end_log(vrMaterial)
+
+	if source:
+		rprMaterial += "." + source
+	return rprMaterial
+
+
+######################## 
 ##  VRayBlendMtl
 ########################
 
@@ -1825,9 +1901,6 @@ def convertVRayLightSphereShape(vr_light):
 		copyProperty(rprLightShape, vr_light, 'intensity', 'intensityMult')
 
 	copyProperty(rprLightShape, vr_light, 'colorMode', 'colorMode')
-	if getProperty(vr_light, 'colorMode') == 1:
-		mel.eval("onTemperatureChanged(\"{}\")".format(rprLightShape))
-
 	copyProperty(rprLightShape, vr_light, 'temperature', 'temperature')
 	copyProperty(rprLightShape, vr_light, 'color', 'lightColor')
 
@@ -1903,9 +1976,6 @@ def convertVRayLightMeshLightLinking(vr_light):
 		copyProperty(rprLightShape, vr_light, 'intensity', 'intensityMult')
 
 	copyProperty(rprLightShape, vr_light, 'colorMode', 'colorMode')
-	if getProperty(vr_light, 'colorMode') == 1:
-		mel.eval("onTemperatureChanged(\"{}\")".format(rprLightShape))
-
 	copyProperty(rprLightShape, vr_light, 'temperature', 'temperature')
 	copyProperty(rprLightShape, vr_light, 'color', 'lightColor')
 
@@ -2001,7 +2071,7 @@ def convertMaterial(material, source):
 		"VRayLightMtl": convertVRayLightMtl,
 		"VRayAlSurface": convertVRayAlSurface,
 		"VRayHairNextMtl": convertVRayHairNextMtl,
-		"VRayFastSSS2Mtl": convertUnsupportedMaterial,
+		"VRayFastSSS2": convertVRayFastSSS2,
 		"VRayFlakesMtl": convertUnsupportedMaterial,
 		"VRayMeshMaterial": convertUnsupportedMaterial,
 		"VRayMtl2Sided": convertUnsupportedMaterial,
