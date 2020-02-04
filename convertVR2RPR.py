@@ -1578,6 +1578,79 @@ def convertVRayFastSSS2(vrMaterial, source):
 
 
 ######################## 
+##  VRayMtlHair3
+########################
+
+def convertVRayMtlHair3(vrMaterial, source):
+
+	assigned = checkAssign(vrMaterial)
+	
+	if cmds.objExists(vrMaterial + "_rpr"):
+		rprMaterial = vrMaterial + "_rpr"
+	else:
+		# Creating new Uber material
+		rprMaterial = cmds.shadingNode("RPRUberMaterial", asShader=True)
+		rprMaterial = cmds.rename(rprMaterial, vrMaterial + "_rpr")
+
+		# Check shading engine in vrMaterial
+		if assigned:
+			sg = rprMaterial + "SG"
+			cmds.sets(renderable=True, noSurfaceShader=True, empty=True, name=sg)
+			connectProperty(rprMaterial, "outColor", sg, "surfaceShader")
+		
+		# Logging to file
+		start_log(vrMaterial, rprMaterial)
+
+		setProperty(rprMaterial, 'reflections', True)
+		setProperty(rprMaterial, 'reflectAnisotropy', 1)
+		setProperty(rprMaterial, 'reflectAnisotropyRotation', 0.5)
+		setProperty(rprMaterial, 'reflectIOR', 10)
+		setProperty(rprMaterial, 'clearCoat', 1)
+		setProperty(rprMaterial, 'coatWeight', 0.5)
+
+		if getProperty(vrMaterial, 'transparency') > 0:
+			setProperty(rprMaterial, 'transparencyEnable', 1)
+			setProperty(rprMaterial, 'transparencyLevel', max(getProperty(vrMaterial, 'transparency')))
+
+		avgPrimarySpecular = sum(getProperty(vrMaterial, 'primarySpecular')) / 3
+		setProperty(rprMaterial, 'reflectRoughness', 1 - ((avgPrimarySpecular + getProperty(vrMaterial, 'primaryGlossiness')) / 2))
+
+		transmissionColor = getProperty(vrMaterial, 'transmission')
+		if (transmissionColor[0] > 0 or transmissionColor[1] > 0 or transmissionColor[2] > 0 or not mapDoesNotExist(vrMaterial, 'transmission')) \
+			and getProperty(vrMaterial, 'transmissionAmount') > 0:
+
+			overall_mult_diffuse = cmds.shadingNode("RPRArithmetic", asUtility=True)
+			setProperty(overall_mult_diffuse, 'operation', 2)
+			copyProperty(overall_mult_diffuse, vrMaterial, 'inputA', 'overallColor')
+			copyProperty(overall_mult_diffuse, vrMaterial, 'inputB', 'diffuseColor')
+
+			diffuseColor = cmds.shadingNode("RPRArithmetic", asUtility=True)
+			setProperty(diffuseColor, 'operation', 0)
+			copyProperty(diffuseColor, vrMaterial, 'inputA', 'transmission')
+			connectProperty(overall_mult_diffuse, 'out', diffuseColor, 'inputB')
+
+			connectProperty(diffuseColor, 'out', rprMaterial, 'diffuseColor')
+
+			setProperty(rprMaterial, 'sssEnable', 1)
+			copyProperty(rprMaterial, vrMaterial, 'volumeScatter', 'transmission')
+
+		else:
+			diffuseColor = cmds.shadingNode("RPRArithmetic", asUtility=True)
+			setProperty(diffuseColor, 'operation', 2)
+			copyProperty(diffuseColor, vrMaterial, 'inputA', 'overallColor')
+			copyProperty(diffuseColor, vrMaterial, 'inputB', 'diffuseColor')
+			onnectProperty(diffuseColor, 'out', rprMaterial, 'diffuseColor')
+
+
+		end_log(vrMaterial)
+
+	if source:
+		rprMaterial += "." + source
+	return rprMaterial
+
+
+
+######################## 
 ##  VRayBlendMtl
 ########################
 
@@ -2072,11 +2145,11 @@ def convertMaterial(material, source):
 		"VRayAlSurface": convertVRayAlSurface,
 		"VRayHairNextMtl": convertVRayHairNextMtl,
 		"VRayFastSSS2": convertVRayFastSSS2,
+		"VRayMtlHair3": convertVRayMtlHair3,
 		"VRayFlakesMtl": convertUnsupportedMaterial,
 		"VRayMeshMaterial": convertUnsupportedMaterial,
 		"VRayMtl2Sided": convertUnsupportedMaterial,
 		"VRayMtlGLSL": convertUnsupportedMaterial,
-		"VRayHair3Mtl": convertUnsupportedMaterial,
 		"VRayMtlMDL": convertUnsupportedMaterial,
 		"VRayMtlOSL": convertUnsupportedMaterial,
 		"VRayMtlRenderStats": convertUnsupportedMaterial,
