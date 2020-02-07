@@ -192,6 +192,7 @@ def getProperty(material, attr):
 	field = material + "." + attr
 	try:
 		value = cmds.getAttr(field)
+		# used for color. it has [(),(),()] structure.
 		if type(value) == list:
 			value = value[0]
 	except Exception as ex:
@@ -894,6 +895,58 @@ def convertVRayFresnel(vr, source):
 	}
 
 	rpr += "." + conversion_map[source]
+	return rpr
+
+
+def convertVRayTriplanar(vr, source):
+
+	if cmds.objExists(vr + "_rpr"):
+		rpr = vr + "_rpr"
+	else:
+		rpr = cmds.shadingNode("projection", asUtility=True)
+		rpr = cmds.rename(rpr, vr + "_rpr")
+
+		# Logging to file
+		start_log(vr, rpr)
+
+		# Fields conversion
+		setProperty(rpr, 'projType', 6)
+		copyProperty(rpr, vr, 'image', 'textureX')
+
+		file_node = cmds.listConnections(vr + "." + 'textureX')
+		if file_node:
+			place2dTexture = cmds.listConnections(file_node[0], type="place2dTexture")[0]
+			setProperty(rpr, 'uAngle', getProperty(vr, "scale") * 2 * getProperty(place2dTexture, "repeatU"))
+			setProperty(rpr, 'vAngle', getProperty(vr, "scale") * 2 * getProperty(place2dTexture, "repeatV"))
+		else:
+			rpr = cmds.rename(rpr, vr + "_UNSUPPORTED_NODE")
+
+		# Logging to file
+		end_log(vr)
+
+	rpr += ".outColor"
+	return rpr
+
+
+
+def convertVRayVertexColors(vr, source):
+
+	if cmds.objExists(vr + "_rpr"):
+		rpr = vr + "_rpr"
+	else:
+		rpr = cmds.shadingNode("RPRLookup", asUtility=True)
+		rpr = cmds.rename(rpr, vr + "_rpr")
+
+		# Logging to file
+		start_log(vr, rpr)
+
+		# Fields conversion
+		setProperty(rpr, 'type', 256)
+		
+		# Logging to file
+		end_log(vr)
+
+	rpr += ".outColor"
 	return rpr
 
 
@@ -1793,6 +1846,22 @@ def convertVRayLightDomeShape(dome_light):
 	if file:
 		setProperty(iblTransform, "filePath", getProperty(file[0], "fileTextureName"))
 
+		try:
+			vrayPlaceEnvTex = cmds.listConnections(file, type="VRayPlaceEnvTex")
+			if vrayPlaceEnvTex:
+				if getProperty(vrayPlaceEnvTex[0], "useTransform"):
+					transform = cmds.getAttr(vrayPlaceEnvTex[0], "transform")
+					setProperty(iblTransform, "translate", (transform[0], transform[1], transform[2]))
+					setProperty(iblTransform, "rotate", (transform[4], transform[5], transform[6]))
+				else:
+					copyProperty(iblTransform, vrayPlaceEnvTex[0], "rotateY", "horRotation")
+					copyProperty(iblTransform, vrayPlaceEnvTex[0], "rotateX", "verRotation")
+					copyProperty(iblTransform, vrayPlaceEnvTex[0], "rotateZ", "verRotation")
+		except Exception as ex:
+			traceback.print_exc()
+			print("Failed to convert VRayPlaceEnvTex.")
+
+
 	invisible = getProperty(dome_light, 'invisible')
 	if invisible:
 		setProperty(iblShape, 'display', 0)
@@ -2183,7 +2252,9 @@ def convertMaterial(material, source):
 
 		# VRay utilities
 		"VRayTemperature": convertVRayTemperature,
-		"VRayFresnel": convertVRayFresnel
+		"VRayFresnel": convertVRayFresnel,
+		"VRayTriplanar": convertVRayTriplanar,
+		"VRayVertexColors": convertVRayVertexColors
 
 	}
 
@@ -2407,6 +2478,9 @@ def convertScene():
 		setProperty("RadeonProRenderGlobals", "raycastEpsilon", 0.001)
 		if MAX_RAY_DEPTH:
 			setProperty("RadeonProRenderGlobals", "maxRayDepth", MAX_RAY_DEPTH)
+
+		if cmds.ls(type="VRayDirt"):
+			setProperty("RadeonProRenderGlobals", "aovAO", 1)
 
 		
 		# TODO render settings conversion
