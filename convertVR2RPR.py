@@ -2103,6 +2103,94 @@ def convertVRayBlendMtl(vrMaterial, source):
 
 
 ######################## 
+##  VRaySwitchMtl
+########################
+
+
+def convertVRaySwitchMtl(vrMaterial, source):
+	assigned = checkAssign(vrMaterial)
+	
+	if cmds.objExists(vrMaterial + "_rpr"):
+		rprMaterial = vrMaterial + "_rpr"
+	else:
+		# Creating new Uber material
+		rprMaterial = cmds.shadingNode("RPRBlendMaterial", asShader=True)
+		
+		# Logging to file
+		start_log(vrMaterial, rprMaterial)
+
+		materialsSwitch = getProperty(vrMaterial, "materialsSwitch")
+		if materialsSwitch < 0.499:
+			active_material = 0
+		elif materialsSwitch >= 0.5 and materialsSwitch < 1.499:
+			active_material = 1
+		elif materialsSwitch >= 1.5 and materialsSwitch < 2.499:
+			active_material = 2
+		elif materialsSwitch >= 2.5 and materialsSwitch < 3.499:
+			active_material = 3
+		elif materialsSwitch >= 3.5 and materialsSwitch < 4.499:
+			active_material = 4
+		elif materialsSwitch >= 4.5 and materialsSwitch < 5.499:
+			active_material = 5
+		elif materialsSwitch >= 5.5 and materialsSwitch < 6.499:
+			active_material = 6
+		elif materialsSwitch >= 6.5 and materialsSwitch < 7.499:
+			active_material = 7
+		elif materialsSwitch >= 7.5 and materialsSwitch < 8.499:
+			active_material = 8
+		elif materialsSwitch >= 8.5:
+			active_material = 9
+
+		# materials count
+		materials_count = 0
+		for i in range(0, 9):
+			if cmds.listConnections(vrMaterial + '.material_{}'.format(i)):
+				materials_count += 1
+
+		first_material = True
+		second_material = True
+		for i in range(0, 9):
+			material = cmds.listConnections(vrMaterial + '.material_{}'.format(i))
+			if material:
+				if materials_count > 1:
+					if first_material:
+						connectProperty(convertMaterial(material[0], ''), 'outColor', rprMaterial, 'color0')
+						if i == active_material:
+							setProperty(rprMaterial, "weight", 0)
+						first_material = False
+					elif second_material:
+						connectProperty(convertMaterial(material[0], ''), 'outColor', rprMaterial, 'color1')
+						if i == active_material:
+							setProperty(rprMaterial, "weight", 1)
+						second_material = False
+					else:
+						prev_rprMaterial = rprMaterial
+						rprMaterial = cmds.shadingNode("RPRBlendMaterial", asShader=True)
+						connectProperty(prev_rprMaterial, 'outColor', rprMaterial, 'color0')
+						connectProperty(convertMaterial(material[0], ''), 'outColor', rprMaterial, 'color1')
+						if i == active_material:
+							setProperty(rprMaterial, "weight", 1)
+				else:
+					connectProperty(convertMaterial(material[0], ''), 'outColor', rprMaterial, 'color1')
+					setProperty(rprMaterial, "weight", 0)	
+
+		# rename and create SG for last blend material
+		rprMaterial = cmds.rename(rprMaterial, vrMaterial + "_rpr")
+
+		# Check shading engine in vrMaterial
+		if assigned:
+			sg = rprMaterial + "SG"
+			cmds.sets(renderable=True, noSurfaceShader=True, empty=True, name=sg)
+			connectProperty(rprMaterial, "outColor", sg, "surfaceShader")
+
+		end_log(vrMaterial)
+
+	if source:
+		rprMaterial += "." + source
+	return rprMaterial
+
+
+######################## 
 ##  VRayBumpMtl
 ########################
 
@@ -2548,6 +2636,7 @@ def convertMaterial(material, source):
 		"VRayFastSSS2": convertVRayFastSSS2,
 		"VRayMtlHair3": convertVRayMtlHair3,
 		"VRayToonMtl": convertVRayToonMtl,
+		"VRaySwitchMtl": convertVRaySwitchMtl,
 		"VRayFlakesMtl": convertUnsupportedMaterial,
 		"VRayMeshMaterial": convertUnsupportedMaterial,
 		"VRayMtl2Sided": convertUnsupportedMaterial,
@@ -2559,7 +2648,6 @@ def convertMaterial(material, source):
 		"VRayPointParticleMtl": convertUnsupportedMaterial,
 		"VRayScannedMtl": convertUnsupportedMaterial,
 		"VRayStochasticFlakesMtl": convertUnsupportedMaterial,
-		"VRaySwitchMtl": convertUnsupportedMaterial,
 		"VRayVRmatMtl": convertUnsupportedMaterial,
 
 		# VRay Volumetric
