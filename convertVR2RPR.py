@@ -1118,6 +1118,78 @@ def convertVRayVertexColors(vr, source):
 	return rpr
 
 
+def convertVRayUserScalar(vr, source):
+
+	if cmds.objExists(vr + "_rpr"):
+		rpr = vr + "_rpr"
+	else:
+		rpr = cmds.shadingNode("floatConstant", asUtility=True)
+		rpr = cmds.rename(rpr, vr + "_rpr")
+
+		# Logging to file
+		start_log(vr, rpr)
+
+		# Fields conversion
+		copyProperty(rpr, vr, "inFloat", "defaultValue")
+		
+		# Logging to file
+		end_log(vr)
+
+	conversion_map = {
+		"outAlpha": "outFloat"
+	}
+
+	rpr += "." + conversion_map[source]
+	return rpr
+
+
+def convertVRayUserInteger(vr, source):
+
+	if cmds.objExists(vr + "_rpr"):
+		rpr = vr + "_rpr"
+	else:
+		rpr = cmds.shadingNode("floatConstant", asUtility=True)
+		rpr = cmds.rename(rpr, vr + "_rpr")
+
+		# Logging to file
+		start_log(vr, rpr)
+
+		# Fields conversion
+		copyProperty(rpr, vr, "inFloat", "defaultValue")
+		
+		# Logging to file
+		end_log(vr)
+
+	conversion_map = {
+		"outInt": "outFloat"
+	}
+
+	rpr += "." + conversion_map[source]
+	return rpr
+
+
+def convertVRayUserColor(vr, source):
+
+	if cmds.objExists(vr + "_rpr"):
+		rpr = vr + "_rpr"
+	else:
+		rpr = cmds.shadingNode("colorConstant", asUtility=True)
+		rpr = cmds.rename(rpr, vr + "_rpr")
+
+		# Logging to file
+		start_log(vr, rpr)
+
+		# Fields conversion
+		copyProperty(rpr, vr, "inColor", "color")
+		
+		# Logging to file
+		end_log(vr)
+
+
+	rpr += "." + source
+	return rpr
+
+
 def convertVRayDirt(vr, source):
 
 	if cmds.objExists(vr + "_rpr"):
@@ -1672,6 +1744,69 @@ def convertVRayLightMtl(vrMaterial, source):
 	if source:
 		rprMaterial += "." + source
 	return rprMaterial
+
+
+######################## 
+##  VRayToonMtl
+########################
+
+def convertVRayToonMtl(vrMaterial, source):
+
+	assigned = checkAssign(vrMaterial)
+	
+	if cmds.objExists(vrMaterial + "_rpr"):
+		rprMaterial = vrMaterial + "_rpr"
+	else:
+		# Creating new Uber material
+		rprMaterial = cmds.shadingNode("RPRUberMaterial", asShader=True)
+		rprMaterial = cmds.rename(rprMaterial, vrMaterial + "_rpr")
+
+		# Check shading engine in vrMaterial
+		if assigned:
+			sg = rprMaterial + "SG"
+			cmds.sets(renderable=True, noSurfaceShader=True, empty=True, name=sg)
+			connectProperty(rprMaterial, "outColor", sg, "surfaceShader")
+		
+		# Logging to file
+		start_log(vrMaterial, rprMaterial)
+
+		defaultEnable(rprMaterial, vrMaterial, "diffuse", "diffuseColorAmount", "diffuseColor")		
+		defaultEnable(rprMaterial, vrMaterial, "reflections", "reflectionColorAmount", "reflectionColor")		
+
+		copyProperty(rprMaterial, vrMaterial, "diffuseColor", "diffuseColor")
+		copyProperty(rprMaterial, vrMaterial, "diffuseWeight", "diffuseColorAmount")
+
+		copyProperty(rprMaterial, vrMaterial, "reflectColor", "reflectionColor")
+		copyProperty(rprMaterial, vrMaterial, "reflectWeight", "reflectionColorAmount")
+		invertValue(rprMaterial, vrMaterial, "reflectRoughness", "reflectionGlossiness")
+
+		opacity_color = getProperty(vrMaterial, "opacityMap")
+		if opacity_color[0] < 1 or opacity_color[1] < 1 or opacity_color[2] < 1:
+			if mapDoesNotExist(vrMaterial, "opacityMap"):
+				transparency = 1 - max(opacity_color)
+				setProperty(rprMaterial, "transparencyLevel", transparency)
+			else:
+				invertValue(rprMaterial, vrMaterial, "transparencyLevel", "opacityMap")
+			setProperty(rprMaterial, "transparencyEnable", 1)
+
+		if not mapDoesNotExist(vrMaterial, 'bumpMap'):
+			base_bumpMapType = getProperty(vrMaterial, 'bumpMapType')
+			if base_bumpMapType in (0, 1):
+				if base_bumpMapType == 0:
+					rpr_node = cmds.shadingNode("RPRBump", asUtility=True)
+				elif base_bumpMapType == 1:
+					rpr_node = cmds.shadingNode("RPRNormal", asUtility=True)
+				copyProperty(rpr_node, vrMaterial, 'color', 'bumpMap')
+				copyProperty(rpr_node, vrMaterial, 'strength', 'bumpMult')
+				setProperty(rprMaterial, 'normalMapEnable', 1)
+				connectProperty(rpr_node, 'out', rprMaterial, 'normalMap')
+
+		end_log(vrMaterial)
+
+	if source:
+		rprMaterial += "." + source
+	return rprMaterial
+
 
 
 ######################## 
@@ -2412,6 +2547,7 @@ def convertMaterial(material, source):
 		"VRayHairNextMtl": convertVRayHairNextMtl,
 		"VRayFastSSS2": convertVRayFastSSS2,
 		"VRayMtlHair3": convertVRayMtlHair3,
+		"VRayToonMtl": convertVRayToonMtl,
 		"VRayFlakesMtl": convertUnsupportedMaterial,
 		"VRayMeshMaterial": convertUnsupportedMaterial,
 		"VRayMtl2Sided": convertUnsupportedMaterial,
@@ -2424,7 +2560,6 @@ def convertMaterial(material, source):
 		"VRayScannedMtl": convertUnsupportedMaterial,
 		"VRayStochasticFlakesMtl": convertUnsupportedMaterial,
 		"VRaySwitchMtl": convertUnsupportedMaterial,
-		"VRayToonMtl": convertUnsupportedMaterial,
 		"VRayVRmatMtl": convertUnsupportedMaterial,
 
 		# VRay Volumetric
@@ -2453,7 +2588,10 @@ def convertMaterial(material, source):
 		"VRayTriplanar": convertVRayTriplanar,
 		"VRayVertexColors": convertVRayVertexColors,
 		"VRayLayeredTex": convertVRayLayeredTex,
-		"VRayDirt": convertVRayDirt
+		"VRayDirt": convertVRayDirt,
+		"VRayUserColor": convertVRayUserColor,
+		"VRayUserScalar": convertVRayUserScalar,
+		"VRayUserInteger": convertVRayUserInteger
 
 	}
 
