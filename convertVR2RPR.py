@@ -130,7 +130,7 @@ def copyProperty(rpr_name, conv_name, rpr_attr, conv_attr):
 				copyProperty(rpr_name, conv_name, rpr_attr + "S", conv_attr + "S")
 				copyProperty(rpr_name, conv_name, rpr_attr + "V", conv_attr + "V")
 			else:
-				print("Failed to find right variant for {}.{} conversion".format(conv_name, conv_attr))
+				print("[ERROR] Failed to find right variant for {}.{} conversion".format(conv_name, conv_attr))
 
 		# field conversion
 		else:
@@ -164,7 +164,7 @@ def copyProperty(rpr_name, conv_name, rpr_attr, conv_attr):
 			write_converted_property_log(rpr_name, conv_name, rpr_attr, conv_attr)
 	except Exception as ex:
 		traceback.print_exc()
-		print(u"Error while copying from {} to {}".format(conv_field, rpr_field).encode('utf-8'))
+		print(u"[ERROR] Failed to copy parameters from {} to {}".format(conv_field, rpr_field).encode('utf-8'))
 
 
 def setProperty(rpr_name, rpr_attr, value):
@@ -182,8 +182,8 @@ def setProperty(rpr_name, rpr_attr, value):
 		write_own_property_log(u"Set value {} to {}.".format(value, rpr_field).encode('utf-8'))
 	except Exception as ex:
 		traceback.print_exc()
-		print(u"Set value {} to {} is failed. Check the values and their boundaries. ".format(value, rpr_field).encode('utf-8'))
-		write_own_property_log(u"Set value {} to {} is failed. Check the values and their boundaries. ".format(value, rpr_field).encode('utf-8'))
+		print(u"[ERROR] Set value {} to {} is failed. Check the values and their boundaries. ".format(value, rpr_field).encode('utf-8'))
+		write_own_property_log(u"[ERROR] Set value {} to {} is failed. Check the values and their boundaries. ".format(value, rpr_field).encode('utf-8'))
 
 
 def getProperty(material, attr):
@@ -197,7 +197,7 @@ def getProperty(material, attr):
 			value = value[0]
 	except Exception as ex:
 		traceback.print_exc()
-		write_own_property_log(u"There is no {} field in this node. Check the field and try again. ".format(field).encode('utf-8'))
+		write_own_property_log(u"[ERROR] There is no {} field in this node. Check the field and try again. ".format(field).encode('utf-8'))
 		return
 
 	return value
@@ -222,7 +222,7 @@ def mapDoesNotExist(rs_name, rs_attr):
 				return 0
 	except Exception as ex:
 		traceback.print_exc()
-		write_own_property_log(u"There is no {} field in this node. Check the field and try again. ".format(rs_field).encode('utf-8'))
+		write_own_property_log(u"[ERROR] There is no {} field in this node. Check the field and try again. ".format(rs_field).encode('utf-8'))
 		return
 
 	return 1
@@ -286,8 +286,8 @@ def connectProperty(source_name, source_attr, rpr_name, rpr_attr):
 		write_own_property_log(u"Created connection from {} to {}.".format(source, rpr_field).encode('utf-8'))
 	except Exception as ex:
 		traceback.print_exc()
-		print(u"Connection {} to {} is failed.".format(source, rpr_field).encode('utf-8'))
-		write_own_property_log(u"Connection {} to {} is failed.".format(source, rpr_field).encode('utf-8'))
+		print(u"[ERROR] Connection {} to {} is failed.".format(source, rpr_field).encode('utf-8'))
+		write_own_property_log(u"[ERROR] Connection {} to {} is failed.".format(source, rpr_field).encode('utf-8'))
 
 
 def invertValue(rpr_name, conv_name, rpr_attr, conv_attr):
@@ -898,6 +898,175 @@ def convertVRayFresnel(vr, source):
 	return rpr
 
 
+def convertVRayLayeredTex(vr, source):
+
+	if cmds.objExists(vr + "_rpr"):
+		rpr = vr + "_rpr"
+	else:
+		rpr = cmds.shadingNode("RPRBlendValue", asUtility=True)
+		
+		# Logging to file
+		start_log(vr, rpr)
+
+		# check used layers 
+		def checkLayerEnabled(index):
+			if cmds.getAttr(vr + ".layers[" + str(index) + "].enabled"):
+				if cmds.getAttr(vr + ".layers[" + str(index) + "].tex") != [(0.5, 0.5, 0.5)] or cmds.getAttr(vr + ".layers[" + str(index) + "].mask") != [(1, 1, 1)] \
+					or cmds.getAttr(vr + ".layers[" + str(index) + "].blendMode") or cmds.getAttr(vr + ".layers[" + str(index) + "].opacity") < 1:
+					return True
+			return False
+
+
+		# convert vray layer mask
+		def convertMask(index):
+			# special case. Invert mask
+			invertValue = False
+			if layer_size > 1 and index == layers_idxs[0]:
+				invertValue = True
+
+			# mask hasn't map. Convert with formula
+			if mapDoesNotExist(vr, "layers[{}].mask".format(index)):
+				# convert color to weight
+				mask_color = getProperty(vr, "layers[{}].mask".format(index))
+				if mask_color == (1, 1, 1):
+					mask_weight = 0
+				else:
+					mask_weight = mask_color[0] * 0.3 + mask_color[1] * 0.59 + mask_color[2] * 0.11
+				# opacity hasn't map
+				if mapDoesNotExist(vr, "layers[{}].opacity".format(index)):
+					opacity = getProperty(vr, "layers[{}].opacity".format(index))
+					if opacity < 1 and invertValue:
+						setProperty(rpr, "weight", 1 - mask_weight * opacity)
+					elif opacity < 1:
+						setProperty(rpr, "weight", mask_weight * opacity)
+					else:
+						setProperty(rpr, "weight", mask_weight)
+				# opacity is map
+				else:
+					mult_opacity = cmds.shadingNode("RPRArithmetic", asUtility=True)
+					mult_opacity = cmds.rename(lum_mult_opacity, 'layer_{}_mult_opacity'.format(index))
+					setProperty(mult_opacity, "operation", 2)
+					setProperty(mult_opacity, "inputAX", mask_weight)
+					copyProperty(mult_opacity, vr, "inputBX", "layers[{}].opacity".format(index))
+
+					if invertValue:
+						invert_mask = cmds.shadingNode("RPRArithmetic", asUtility=True)
+						invert_mask = cmds.rename(invert_mask, 'invert_mask')
+						setProperty(invert_mask, "operation", 1)
+						setProperty(invert_mask, "inputAX", 1)
+						connectProperty(mult_opacity, "outX", invert_mask, "inputBX")
+						connectProperty(invert_mask, "outX", rpr, "weight")
+					else:
+						connectProperty(mult_opacity, "outX", rpr, "weight")
+
+			# mask has map. Convert with luminance node
+			else:
+				# opacity is used
+				if not mapDoesNotExist(vr, "layers[{}].opacity".format(index)) or getProperty(vr, "layers[{}].opacity".format(index)) < 1:
+					
+					mask_mult_opacity = cmds.shadingNode("RPRArithmetic", asUtility=True)
+					mask_mult_opacity = cmds.rename(mask_mult_opacity, 'layer_{}_mask_mult_opacity'.format(index))
+					setProperty(mask_mult_opacity, "operation", 2)
+					copyProperty(mask_mult_opacity, vr, "inputA", "layers[{}].mask".format(index))
+					copyProperty(mask_mult_opacity, vr, "inputBX", "layers[{}].opacity".format(index))
+
+					if invertValue:
+						invert_mask = cmds.shadingNode("RPRArithmetic", asUtility=True)
+						invert_mask = cmds.rename(invert_mask, 'invert_mask')
+						setProperty(invert_mask, "operation", 1)
+						setProperty(invert_mask, "inputA", (1, 1, 1))
+						connectProperty(mask_mult_opacity, "out", invert_mask, "inputB")
+						connectProperty(invert_mask, "outX", rpr, "weight")
+
+					else:
+						connectProperty(mask_mult_opacity, "outX", rpr, "weight")
+				# no opacity
+				else:
+					if invertValue:
+						invert_mask = cmds.shadingNode("RPRArithmetic", asUtility=True)
+						invert_mask = cmds.rename(invert_mask, 'invert_mask')
+						setProperty(invert_mask, "operation", 1)
+						setProperty(invert_mask, "inputA", (1, 1, 1))
+						copyProperty(invert_mask, vr, "inputA", "layers[{}].mask".format(index))
+						connectProperty(invert_mask, "outX", rpr, "weight")
+					else:
+						luminance = cmds.shadingNode("luminance", asUtility=True)
+						luminance = cmds.rename(luminance, 'layer_{}_mask'.format(index))
+						copyProperty(luminance, vr, "value", "layers[{}].mask".format(index))
+						connectProperty(luminance, "outValue", rpr, "weight")
+
+		# get count of layers
+		layer_size = cmds.getAttr("VRayLayeredTex1.layers", size=True)
+
+		layers_idxs = []
+		current_layer_index = 0
+		while len(layers_idxs) < layer_size and current_layer_index < 20:
+			if checkLayerEnabled(current_layer_index):
+				layers_idxs.append(current_layer_index)
+			current_layer_index += 1
+			if current_layer_index == 20:
+				print("[ERROR] Script doesn't support layers with index > 20!")
+
+		# convert 1st layer		
+		rpr = cmds.rename(rpr, "layer_{}_blend".format(layers_idxs[0]))
+		copyProperty(rpr, vr, "inputA", "layers[{}].tex".format(layers_idxs[0]))
+		convertMask(layers_idxs[0])
+
+		if layer_size > 1:
+			copyProperty(rpr, vr, "inputB", "layers[{}].tex".format(layers_idxs[1]))
+
+		for idx in layers_idxs[1:]:
+
+			old_rpr = rpr
+			rpr = cmds.shadingNode("RPRBlendValue", asUtility=True)
+			rpr = cmds.rename(rpr, "layers_{}_blend".format(idx))
+
+			blendMode = getProperty(vr, "layers[{}].blendMode".format(idx))
+			if blendMode:
+				arith = cmds.shadingNode("RPRArithmetic", asUtility=True)
+				arith = cmds.rename(arith, 'layers_{}_arith'.format(idx))
+
+				if blendMode == 1: # average -> absolute (?)
+					setProperty(arith, "operation", 25)
+				elif blendMode == 2: # add
+					setProperty(arith, "operation", 0)
+				elif blendMode == 3: # sub
+					setProperty(arith, "operation", 1)
+				elif blendMode == 4: # darken
+					setProperty(arith, "operation", 21)
+				elif blendMode == 5: # mult (?)
+					setProperty(arith, "operation", 2)
+				elif blendMode == 11: # linear dodge
+					setProperty(arith, "operation", 0)
+				else:
+					arith = cmds.rename(arith, 'layers_{}_UNSUPPORTED_BLEND_MODE'.format(idx))
+					setProperty(arith, "operation", 0)
+
+				copyProperty(arith, vr, "inputA", "layers[{}].tex".format(idx))
+				connectProperty(old_rpr, "out", arith, "inputB")
+
+				connectProperty(arith, "out", rpr, "inputA")
+			else:
+				copyProperty(rpr, vr, "inputA", "layers[{}].tex".format(idx))
+
+			connectProperty(old_rpr, "out", rpr, "inputB")
+			convertMask(idx)		
+
+		# Logging to file
+		end_log(vr)
+
+	conversion_map = {
+		"outColor": "out",
+		"outColorR": "outR",
+		"outColorG": "outG",
+		"outColorB": "outB"
+	}
+
+	rpr += "." + conversion_map[source]
+	return rpr
+
+
+
 def convertVRayTriplanar(vr, source):
 
 	if cmds.objExists(vr + "_rpr"):
@@ -925,8 +1094,7 @@ def convertVRayTriplanar(vr, source):
 		end_log(vr)
 
 	rpr += ".outColor"
-	return rpr
-
+	return 
 
 
 def convertVRayVertexColors(vr, source):
@@ -946,9 +1114,38 @@ def convertVRayVertexColors(vr, source):
 		# Logging to file
 		end_log(vr)
 
-	rpr += ".outColor"
+	rpr += ".out"
 	return rpr
 
+
+def convertVRayDirt(vr, source):
+
+	if cmds.objExists(vr + "_rpr"):
+		rpr = vr + "_rpr"
+	else:
+		rpr = cmds.shadingNode("RPRAmbientOcclusion", asUtility=True)
+		rpr = cmds.rename(rpr, vr + "_rpr")
+
+		# Logging to file
+		start_log(vr, rpr)
+
+		# Fields conversion
+		copyProperty(rpr, vr, 'occludedColor', 'blackColor')
+		copyProperty(rpr, vr, 'unoccludedColor', 'whiteColor')
+
+		if getProperty(vr, "falloff") > 0:
+			setProperty(rpr, "radius", 0.02076 * (getProperty(vr, "radius") / getProperty(vr, "falloff")) ** 0.89408)
+		else:
+			setProperty(rpr, "radius", 0.02076 * getProperty(vr, "radius") ** 0.89408)
+
+		if getProperty(vr, "invertNormal"):
+			setProperty(rpr, "side", 1)
+
+		# Logging to file
+		end_log(vr)
+
+	rpr += ".outColor"
+	return
 
 
 # Create default uber material for unsupported material
@@ -1859,7 +2056,7 @@ def convertVRayLightDomeShape(dome_light):
 					copyProperty(iblTransform, vrayPlaceEnvTex[0], "rotateZ", "verRotation")
 		except Exception as ex:
 			traceback.print_exc()
-			print("Failed to convert VRayPlaceEnvTex.")
+			print("[ERROR] Failed to convert VRayPlaceEnvTex.")
 
 
 	invisible = getProperty(dome_light, 'invisible')
@@ -2060,7 +2257,7 @@ def convertVRayLightSphereShape(vr_light):
 		cmds.select(sphere)
 	except Exception as ex:
 		traceback.print_exc()
-		print("Failed to attach mesh to rpr physical light")
+		print("[ERROR] Failed to attach mesh to rpr physical light")
 
 	copyProperty(sphere, vrTransform, "translate", "translate")
 	copyProperty(sphere, vrTransform, "rotate", "rotate")
@@ -2135,7 +2332,7 @@ def convertVRayLightMeshLightLinking(vr_light):
 		cmds.select(mesh_obj)
 	except Exception as ex:
 		traceback.print_exc()
-		print("Failed to attach mesh to rpr physical light")
+		print("[ERROR] Failed to attach mesh to rpr physical light")
 
 	if getProperty(vr_light, 'useTex'):
 		tex_mult = cmds.shadingNode("RPRArithmetic", asUtility=True)
@@ -2254,7 +2451,9 @@ def convertMaterial(material, source):
 		"VRayTemperature": convertVRayTemperature,
 		"VRayFresnel": convertVRayFresnel,
 		"VRayTriplanar": convertVRayTriplanar,
-		"VRayVertexColors": convertVRayVertexColors
+		"VRayVertexColors": convertVRayVertexColors,
+		"VRayLayeredTex": convertVRayLayeredTex,
+		"VRayDirt": convertVRayDirt
 
 	}
 
@@ -2294,8 +2493,7 @@ def convertLight(light):
 def isVRayType(obj):
 
 	if cmds.objExists(obj):
-		objType = cmds.objectType(obj)
-		if "VRay" in objType:
+		if "VRay" in cmds.objectType(obj):
 			return 1
 	return 0
 
@@ -2326,7 +2524,7 @@ def cleanScene():
 
 	listObjects = cmds.ls(l=True)
 	for obj in listObjects:
-		if isVRayType(object):
+		if isVRayType(obj):
 			try:
 				cmds.delete(obj)
 			except Exception as ex:
@@ -2447,7 +2645,7 @@ def convertScene():
 			convertLight(light)
 		except Exception as ex:
 			traceback.print_exc()
-			print("Error while converting {} light. \n".format(light))
+			print("[ERROR] Failed to convert {} light. \n".format(light))
 		
 	# Get all materials from scene
 	listMaterials = cmds.ls(materials=True)
@@ -2463,7 +2661,7 @@ def convertScene():
 			cmds.sets(forceElement=rpr_sg)
 		except Exception as ex:
 			traceback.print_exc()
-			print("Error while converting {} material. \n".format(vr))
+			print("[ERROR] Failed to convert {} material. \n".format(vr))
 	
 	# globals conversion
 	try:
@@ -2478,10 +2676,6 @@ def convertScene():
 		setProperty("RadeonProRenderGlobals", "raycastEpsilon", 0.001)
 		if MAX_RAY_DEPTH:
 			setProperty("RadeonProRenderGlobals", "maxRayDepth", MAX_RAY_DEPTH)
-
-		if cmds.ls(type="VRayDirt"):
-			setProperty("RadeonProRenderGlobals", "aovAO", 1)
-
 		
 		# TODO render settings conversion
 
