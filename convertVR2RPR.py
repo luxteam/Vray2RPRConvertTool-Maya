@@ -996,7 +996,7 @@ def convertVRayLayeredTex(vr, source):
 						connectProperty(luminance, "outValue", rpr, "weight")
 
 		# get count of layers
-		layer_size = cmds.getAttr("VRayLayeredTex1.layers", size=True)
+		layer_size = cmds.getAttr(vr + ".layers", size=True)
 
 		layers_idxs = []
 		current_layer_index = 0
@@ -1066,6 +1066,80 @@ def convertVRayLayeredTex(vr, source):
 	return rpr
 
 
+def convertVRayMultiSubTex(vr, source):
+
+	if cmds.objExists(vr + "_rpr"):
+		rpr = vr + "_rpr"
+	else:
+
+		# if getProperty(vr, "multiSubType") == 30:
+		if False:
+
+			rpr = cmds.shadingNode("RPRBlendValue", asUtility=True)
+			rpr = cmds.rename(rpr, vr + "_rpr")
+
+			# Logging to file
+			start_log(vr, rpr)
+
+			# check used layers 
+			def checkSubTexEnabled(index):
+				if cmds.getAttr(vr + ".subTexList[" + str(index) + "].subTexListUsed"):
+					if cmds.getAttr(vr + ".subTexList[" + str(index) + "].subTexListID") != 1 or cmds.getAttr(vr + ".layers[" + str(index) + "].subTexListTex") != [(0.5, 0.5, 0.5)]:
+						return True
+				return False
+
+			# get count of layers
+			subText_size = cmds.getAttr(vr + ".subTexList", size=True)
+			
+			layers_idxs = []
+			current_layer_index = 0
+			while len(layers_idxs) < subText_size and current_layer_index < 20:
+				if checkSubTexEnabled(current_layer_index):
+					layers_idxs.append(current_layer_index)
+				current_layer_index += 1
+				if current_layer_index == 20:
+					print("[ERROR] Script doesn't support layers with index > 20!")
+
+			idGenTex = getProperty(vrMaterial, "idGenTex")
+
+			first_material = True
+			second_material = True
+			for i in range(0, 9):
+				material = cmds.listConnections(vrMaterial + '.material_{}'.format(i))
+				if material:
+					if materials_count > 1:
+						if first_material:
+							connectProperty(convertMaterial(material[0], ''), 'outColor', rprMaterial, 'color0')
+							if i == active_material:
+								setProperty(rprMaterial, "weight", 0)
+							first_material = False
+						elif second_material:
+							connectProperty(convertMaterial(material[0], ''), 'outColor', rprMaterial, 'color1')
+							if i == active_material:
+								setProperty(rprMaterial, "weight", 1)
+							second_material = False
+						else:
+							prev_rprMaterial = rprMaterial
+							rprMaterial = cmds.shadingNode("RPRBlendMaterial", asShader=True)
+							connectProperty(prev_rprMaterial, 'outColor', rprMaterial, 'color0')
+							connectProperty(convertMaterial(material[0], ''), 'outColor', rprMaterial, 'color1')
+							if i == active_material:
+								setProperty(rprMaterial, "weight", 1)
+					else:
+						connectProperty(convertMaterial(material[0], ''), 'outColor', rprMaterial, 'color1')
+						setProperty(rprMaterial, "weight", 0)	
+
+			# rename and create SG for last blend material
+			rprMaterial = cmds.rename(rprMaterial, vrMaterial + "_rpr")
+
+			# Logging to file
+			end_log(vr)
+		else:
+			return convertUnsupportedNode(vr, source)
+
+	rpr += ".output"
+	return rpr
+
 
 def convertVRayTriplanar(vr, source):
 
@@ -1094,7 +1168,7 @@ def convertVRayTriplanar(vr, source):
 		end_log(vr)
 
 	rpr += ".outColor"
-	return 
+	return rpr
 
 
 def convertVRayVertexColors(vr, source):
@@ -1216,8 +1290,8 @@ def convertVRayDirt(vr, source):
 		# Logging to file
 		end_log(vr)
 
-	rpr += ".outColor"
-	return
+	rpr += ".output"
+	return rpr
 
 
 # Create default uber material for unsupported material
@@ -1355,8 +1429,8 @@ def convertVRayMtl(vrMaterial, source):
 
 		copyProperty(rprMaterial, vrMaterial, 'refractColor', 'fogColor')
 		refractColor = getProperty(vrMaterial, 'refractionColor')
-		rpr_refl_weight = getProperty(vrMaterial, 'refractionColorAmount') * (0.3 * refractColor[0] + 0.59 * refractColor[1] + 0.11 * refractColor[2])
-		setProperty(rprMaterial, 'refractWeight', rpr_refl_weight)
+		rpr_refr_weight = getProperty(vrMaterial, 'refractionColorAmount') * (0.3 * refractColor[0] + 0.59 * refractColor[1] + 0.11 * refractColor[2])
+		setProperty(rprMaterial, 'refractWeight', rpr_refr_weight)
 		invertValue(rprMaterial, vrMaterial, 'refractRoughness', 'refractionGlossiness')
 		copyProperty(rprMaterial, vrMaterial, 'refractIor', 'refractionIOR')
 
@@ -1422,7 +1496,7 @@ def convertVRayAlSurface(vrMaterial, source):
 				transparency = 1 - opacity
 				setProperty(rprMaterial, "transparencyLevel", transparency)
 			else:
-				invertValue(rprMaterial, vrMaterial, "transparencyLevel", "opacityMap")
+				invertValue(rprMaterial, vrMaterial, "transparencyLevel", "opacity")
 			setProperty(rprMaterial, "transparencyEnable", 1)
 
 		# diffuse parameters
@@ -1909,6 +1983,7 @@ def convertVRayFastSSS2(vrMaterial, source):
 		invertValue(rprMaterial, vrMaterial, 'reflectRoughness', 'glossiness')
 
 		diffuse_color = cmds.shadingNode("RPRArithmetic", asUtility=True)
+		diffuse_color = cmds.rename(diffuse_color, "diffuse_color_mult_overall")
 		setProperty(diffuse_color, 'operation', 2)
 		copyProperty(diffuse_color, vrMaterial, 'inputA', 'diffuseTex')
 		copyProperty(diffuse_color, vrMaterial, 'inputB', 'overallTex')
@@ -1917,41 +1992,46 @@ def convertVRayFastSSS2(vrMaterial, source):
 		copyProperty(rprMaterial, vrMaterial, 'diffuseWeight', 'diffuseAmount')
 		setProperty(rprMaterial, 'sssEnable', True)
 		setProperty(rprMaterial, 'separateBackscatterColor', True)
+		if getProperty(vrMaterial, "scale") > 0:
+			setProperty(rprMaterial, "backscatteringWeight", 1)
 
 		if getProperty(vrMaterial, 'colorMode'):
 			backscattering_color_mult = cmds.shadingNode("RPRArithmetic", asUtility=True)
+			backscattering_color_mult = cmds.rename(backscattering_color_mult, "backscattering_color_mult_overall")
+			setProperty(backscattering_color_mult, 'operation', 2)
+			copyProperty(backscattering_color_mult, vrMaterial, 'inputA', 'subsurfaceColor')
+			copyProperty(backscattering_color_mult, vrMaterial, 'inputB', 'overallTex')
+			connectProperty(backscattering_color_mult, 'out', rprMaterial, 'volumeScatter')
+
+		else:
+			backscattering_color_mult = cmds.shadingNode("RPRArithmetic", asUtility=True)
+			backscattering_color_mult = cmds.rename(backscattering_color_mult, "backscattering_color_mult_overall")
 			setProperty(backscattering_color_mult, 'operation', 2)
 			copyProperty(backscattering_color_mult, vrMaterial, 'inputA', 'subsurfaceColor')
 			copyProperty(backscattering_color_mult, vrMaterial, 'inputB', 'overallTex')
 
-			backscattering_color_div = cmds.shadingNode("RPRArithmetic", asUtility=True)
-			setProperty(backscattering_color_div, 'operation', 3)
-			connectProperty(backscattering_color_mult, 'out', backscattering_color_div, 'inputA')
-			copyProperty(backscattering_color_div, vrMaterial, 'inputB', 'scatterRadiusColor')
-			connectProperty(backscattering_color_div, 'out', rprMaterial, 'backscatteringColor')
+			backscattering_color_mult_1_33 = cmds.shadingNode("RPRArithmetic", asUtility=True)
+			backscattering_color_mult_1_33 = cmds.rename(backscattering_color_mult_1_33, "backscattering_color_mult_1_33")
+			setProperty(backscattering_color_mult_1_33, 'operation', 2)
+			connectProperty(backscattering_color_mult, "out", backscattering_color_mult_1_33, 'inputA')
+			setProperty(backscattering_color_mult_1_33, 'inputB', (1.33, 1.33, 1.33))
+			connectProperty(backscattering_color_mult_1_33, 'out', rprMaterial, 'backscatteringColor')
 
-			connectProperty(backscattering_color_div, 'out', rprMaterial, 'volumeScatter')
-		else:
-			backscattering_color_mult = cmds.shadingNode("RPRArithmetic", asUtility=True)
-			setProperty(backscattering_color, 'operation', 2)
-			copyProperty(backscattering_color, vrMaterial, 'inputA', 'subsurfaceColor')
-			copyProperty(backscattering_color, vrMaterial, 'inputB', 'scatterRadiusColor')
-			connectProperty(backscattering_color_mult, 'out', rprMaterial, 'backscatteringColor')
-			copyProperty(rprMaterial, vrMaterial, 'volumeScatter', 'scatterRadiusColor')
+			setProperty(rprMaterial, "volumeScatter", (1, 1, 1))
 
 		rpr_scatter_radius = getProperty(vrMaterial, 'scatterRadiusMult') / getProperty(vrMaterial, 'scale')
 		setProperty(rprMaterial, 'subsurfaceRadius', (rpr_scatter_radius, rpr_scatter_radius, rpr_scatter_radius))
 
 		# bump
 		if not mapDoesNotExist(vrMaterial, 'bumpMap'):
-			bumpType = getProperty(vrMaterial, 'bumpType')
+			bumpType = getProperty(vrMaterial, 'bumpMapType')
 			if bumpType in (0, 1):
 				if bumpType == 0:
 					rpr_node = cmds.shadingNode("RPRBump", asUtility=True)
 				elif bumpType == 1:
 					rpr_node = cmds.shadingNode("RPRNormal", asUtility=True)
 				copyProperty(rpr_node, vrMaterial, 'color', 'bumpMap')
-				copyProperty(rpr_node, vrMaterial, 'strength', 'bumpAmount')
+				copyProperty(rpr_node, vrMaterial, 'strength', 'bumpMult')
 				setProperty(rprMaterial, 'normalMapEnable', 1)
 				connectProperty(rpr_node, 'out', rprMaterial, 'normalMap')
 
@@ -2272,9 +2352,9 @@ def convertVRayLightDomeShape(dome_light):
 				if getProperty(vrayPlaceEnvTex[0], "useTransform"):
 					transform = cmds.getAttr(vrayPlaceEnvTex[0], "transform")
 					setProperty(iblTransform, "translate", (transform[0], transform[1], transform[2]))
-					setProperty(iblTransform, "rotate", (transform[4], transform[5], transform[6]))
+					setProperty(iblTransform, "rotate", (transform[4], transform[5] - 90, transform[6]))
 				else:
-					copyProperty(iblTransform, vrayPlaceEnvTex[0], "rotateY", "horRotation")
+					setProperty(iblTransform, "rotateY", getProperty(vrayPlaceEnvTex[0], "horRotation") - 90)
 					copyProperty(iblTransform, vrayPlaceEnvTex[0], "rotateX", "verRotation")
 					copyProperty(iblTransform, vrayPlaceEnvTex[0], "rotateZ", "verRotation")
 		except Exception as ex:
@@ -2381,7 +2461,6 @@ def convertVRayLightRectShape(vr_light):
 		setProperty(rprLightShape, 'intensityUnits', 2)
 		copyProperty(rprLightShape, vr_light, 'intensity', 'intensityMult')
 
-	'''
 	if getProperty(vr_light, 'shapeType'):
 		setProperty(rprLightShape, 'areaLightShape', 0)
 		setProperty(rprTransform, 'scaleX', getProperty(vr_light, 'uSize') * getProperty(vrTransform, 'scaleX'))
@@ -2390,7 +2469,6 @@ def convertVRayLightRectShape(vr_light):
 		setProperty(rprLightShape, 'areaLightShape', 3)
 		setProperty(rprTransform, 'scaleX', getProperty(vr_light, 'uSize') * getProperty(vrTransform, 'scaleX'))
 		setProperty(rprTransform, 'scaleY', getProperty(vr_light, 'vSize') * getProperty(vrTransform, 'scaleY'))
-	'''
 
 	copyProperty(rprLightShape, vr_light, 'colorMode', 'colorMode')
 	copyProperty(rprLightShape, vr_light, 'temperature', 'temperature')
@@ -2412,7 +2490,6 @@ def convertVRayLightRectShape(vr_light):
 
 	copyProperty(rprTransform, vrTransform, "translate", "translate")
 	copyProperty(rprTransform, vrTransform, "rotate", "rotate")
-	copyProperty(rprTransform, vrTransform, "scale", "scale")
 
 	if getProperty(vr_light, 'invisible'):
 		setProperty(rprLightShape, 'areaLightVisible', 0)
@@ -2679,7 +2756,8 @@ def convertMaterial(material, source):
 		"VRayDirt": convertVRayDirt,
 		"VRayUserColor": convertVRayUserColor,
 		"VRayUserScalar": convertVRayUserScalar,
-		"VRayUserInteger": convertVRayUserInteger
+		"VRayUserInteger": convertVRayUserInteger,
+		"VRayMultiSubTex": convertVRayMultiSubTex
 
 	}
 
@@ -2734,7 +2812,7 @@ def cleanScene():
 				cmds.delete(shEng[0])
 				cmds.delete(material)
 			except Exception as ex:
-				traceback.print_exc()
+				pass
 
 	listLights = cmds.ls(l=True, type=["VRayLightRectShape", "VRayLightDomeShape", "VRaySunShape", "VRaySky", "VRaySunTarget", "VRayLightSphereShape", \
 		"VRayLightMeshLightLinking", "VRayLightMesh", "VRayLightIESShape"])
@@ -2746,7 +2824,7 @@ def cleanScene():
 			if light_type != "VRayLightMesh":
 				cmds.delete(transform[0])
 		except Exception as ex:
-			traceback.print_exc()
+			pass
 
 	listObjects = cmds.ls(l=True)
 	for obj in listObjects:
@@ -2754,7 +2832,7 @@ def cleanScene():
 			try:
 				cmds.delete(obj)
 			except Exception as ex:
-				traceback.print_exc()
+				pass
 
 
 def remap_value(value, maxInput, minInput, maxOutput, minOutput):
