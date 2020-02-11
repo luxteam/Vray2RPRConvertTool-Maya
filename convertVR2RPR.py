@@ -186,15 +186,18 @@ def setProperty(rpr_name, rpr_attr, value):
 		write_own_property_log(u"[ERROR] Set value {} to {} is failed. Check the values and their boundaries. ".format(value, rpr_field).encode('utf-8'))
 
 
-def getProperty(material, attr):
+def getProperty(material, attr, size=False):
 
 	# full name of attribute
 	field = material + "." + attr
 	try:
-		value = cmds.getAttr(field)
-		# used for color. it has [(),(),()] structure.
-		if type(value) == list:
-			value = value[0]
+		if size:
+			value = cmds.getAttr(field, size=True)
+		else:
+			value = cmds.getAttr(field)
+			# used for color. it has [(),(),()] structure.
+			if type(value) == list:
+				value = value[0]
 	except Exception as ex:
 		traceback.print_exc()
 		write_own_property_log(u"[ERROR] There is no {} field in this node. Check the field and try again. ".format(field).encode('utf-8'))
@@ -910,9 +913,9 @@ def convertVRayLayeredTex(vr, source):
 
 		# check used layers 
 		def checkLayerEnabled(index):
-			if cmds.getAttr(vr + ".layers[" + str(index) + "].enabled"):
-				if cmds.getAttr(vr + ".layers[" + str(index) + "].tex") != [(0.5, 0.5, 0.5)] or cmds.getAttr(vr + ".layers[" + str(index) + "].mask") != [(1, 1, 1)] \
-					or cmds.getAttr(vr + ".layers[" + str(index) + "].blendMode") or cmds.getAttr(vr + ".layers[" + str(index) + "].opacity") < 1:
+			if getProperty(vr, "layers[{}].enabled".format(index)):
+				if getProperty(vr, "layers[{}].tex".format(index)) != [(0.5, 0.5, 0.5)] or getProperty(vr, "layers[{}].mask".format(index)) != [(1, 1, 1)] \
+					or getProperty(vr, "layers[{}].blendMode".format(index)) or getProperty(vr, "layers[{}].opacity".format(index)) < 1:
 					return True
 			return False
 
@@ -996,7 +999,7 @@ def convertVRayLayeredTex(vr, source):
 						connectProperty(luminance, "outValue", rpr, "weight")
 
 		# get count of layers
-		layer_size = cmds.getAttr(vr + ".layers", size=True)
+		layer_size = getProperty(vr, "layers", size=True)
 
 		layers_idxs = []
 		current_layer_index = 0
@@ -1072,72 +1075,70 @@ def convertVRayMultiSubTex(vr, source):
 		rpr = vr + "_rpr"
 	else:
 
-		# if getProperty(vr, "multiSubType") == 30:
-		if False:
+		if getProperty(vr, "multiSubType") == 30:
 
 			rpr = cmds.shadingNode("RPRBlendValue", asUtility=True)
-			rpr = cmds.rename(rpr, vr + "_rpr")
 
 			# Logging to file
 			start_log(vr, rpr)
 
 			# check used layers 
 			def checkSubTexEnabled(index):
-				if cmds.getAttr(vr + ".subTexList[" + str(index) + "].subTexListUsed"):
-					if cmds.getAttr(vr + ".subTexList[" + str(index) + "].subTexListID") != 1 or cmds.getAttr(vr + ".layers[" + str(index) + "].subTexListTex") != [(0.5, 0.5, 0.5)]:
+				if getProperty(vr, "subTexList[{}].subTexListUsed".format(index)):
+					if getProperty(vr, "subTexList[{}].subTexListID".format(index)) != 1 or getProperty(vr, "subTexList[{}].subTexListTex".format(index)) != [(0.5, 0.5, 0.5)]:
 						return True
 				return False
 
 			# get count of layers
-			subText_size = cmds.getAttr(vr + ".subTexList", size=True)
+			subText_size = getProperty(vr, "subTexList", size=True)
 			
-			layers_idxs = []
-			current_layer_index = 0
-			while len(layers_idxs) < subText_size and current_layer_index < 20:
-				if checkSubTexEnabled(current_layer_index):
-					layers_idxs.append(current_layer_index)
-				current_layer_index += 1
-				if current_layer_index == 20:
+			subText_idxs = []
+			current_subText_index = 0
+			while len(subText_idxs) < subText_size and current_subText_index < 20:
+				if checkSubTexEnabled(current_subText_index):
+					subText_idxs.append(current_subText_index)
+				current_subText_index += 1
+				if current_subText_index == 20:
 					print("[ERROR] Script doesn't support layers with index > 20!")
 
-			idGenTex = getProperty(vrMaterial, "idGenTex")
+			idGenTex = getProperty(vr, "idGenTex")
 
-			first_material = True
-			second_material = True
-			for i in range(0, 9):
-				material = cmds.listConnections(vrMaterial + '.material_{}'.format(i))
-				if material:
-					if materials_count > 1:
-						if first_material:
-							connectProperty(convertMaterial(material[0], ''), 'outColor', rprMaterial, 'color0')
-							if i == active_material:
-								setProperty(rprMaterial, "weight", 0)
-							first_material = False
-						elif second_material:
-							connectProperty(convertMaterial(material[0], ''), 'outColor', rprMaterial, 'color1')
-							if i == active_material:
-								setProperty(rprMaterial, "weight", 1)
-							second_material = False
-						else:
-							prev_rprMaterial = rprMaterial
-							rprMaterial = cmds.shadingNode("RPRBlendMaterial", asShader=True)
-							connectProperty(prev_rprMaterial, 'outColor', rprMaterial, 'color0')
-							connectProperty(convertMaterial(material[0], ''), 'outColor', rprMaterial, 'color1')
-							if i == active_material:
-								setProperty(rprMaterial, "weight", 1)
-					else:
-						connectProperty(convertMaterial(material[0], ''), 'outColor', rprMaterial, 'color1')
-						setProperty(rprMaterial, "weight", 0)	
-
-			# rename and create SG for last blend material
-			rprMaterial = cmds.rename(rprMaterial, vrMaterial + "_rpr")
+			first_texture = True
+			second_texture = True
+			for idx in subText_idxs:
+				if first_texture:
+					rpr = cmds.rename(rpr, "texture_{}_blend".format(idx))
+					copyProperty(rpr, vr, "inputA", "subTexList[{}].subTexListTex".format(idx))
+					if getProperty(vr, "subTexList[{}].subTexListID".format(idx)) == idGenTex:
+						setProperty(rpr, "weight", 0)
+					first_texture = False
+				elif second_texture:
+					copyProperty(rpr, vr, "inputB", "subTexList[{}].subTexListTex".format(idx))
+					if getProperty(vr, "subTexList[{}].subTexListID".format(idx)) == idGenTex:
+						setProperty(rpr, "weight", 1)
+					second_texture = False
+				else:
+					prev_rpr = rpr
+					rpr = cmds.shadingNode("RPRBlendValue", asUtility=True)
+					rpr = cmds.rename(rpr, "texture_{}_blend".format(idx))
+					connectProperty(prev_rpr, 'out', rpr, 'inputA')
+					copyProperty(rpr, vr, "inputB", "subTexList[{}].subTexListTex".format(idx))
+					if getProperty(vr, "subTexList[{}].subTexListID".format(idx)) == idGenTex:
+						setProperty(rpr, "weight", 1)
 
 			# Logging to file
 			end_log(vr)
 		else:
 			return convertUnsupportedNode(vr, source)
 
-	rpr += ".output"
+	conversion_map = {
+		"outColor": "out",
+		"outColorR": "outR",
+		"outColorG": "outG",
+		"outColorB": "outB"
+	}
+
+	rpr += "." + conversion_map[source]
 	return rpr
 
 
@@ -1159,8 +1160,8 @@ def convertVRayTriplanar(vr, source):
 		file_node = cmds.listConnections(vr + "." + 'textureX')
 		if file_node:
 			place2dTexture = cmds.listConnections(file_node[0], type="place2dTexture")[0]
-			setProperty(rpr, 'uAngle', getProperty(vr, "scale") * 2 * getProperty(place2dTexture, "repeatU"))
-			setProperty(rpr, 'vAngle', getProperty(vr, "scale") * 2 * getProperty(place2dTexture, "repeatV"))
+			setProperty(place2dTexture, 'repeatU', getProperty(vr, "scale") * 2 * getProperty(place2dTexture, "repeatU"))
+			setProperty(place2dTexture, 'repeatV', getProperty(vr, "scale") * 2 * getProperty(place2dTexture, "repeatV"))
 		else:
 			rpr = cmds.rename(rpr, vr + "_UNSUPPORTED_NODE")
 
@@ -2350,7 +2351,7 @@ def convertVRayLightDomeShape(dome_light):
 			vrayPlaceEnvTex = cmds.listConnections(file, type="VRayPlaceEnvTex")
 			if vrayPlaceEnvTex:
 				if getProperty(vrayPlaceEnvTex[0], "useTransform"):
-					transform = cmds.getAttr(vrayPlaceEnvTex[0], "transform")
+					transform = getProperty(vrayPlaceEnvTex[0], "transform")
 					setProperty(iblTransform, "translate", (transform[0], transform[1], transform[2]))
 					setProperty(iblTransform, "rotate", (transform[4], transform[5] - 90, transform[6]))
 				else:
@@ -2714,6 +2715,7 @@ def convertMaterial(material, source):
 		"VRayMtlHair3": convertVRayMtlHair3,
 		"VRayToonMtl": convertVRayToonMtl,
 		"VRaySwitchMtl": convertVRaySwitchMtl,
+
 		"VRayFlakesMtl": convertUnsupportedMaterial,
 		"VRayMeshMaterial": convertUnsupportedMaterial,
 		"VRayMtl2Sided": convertUnsupportedMaterial,
