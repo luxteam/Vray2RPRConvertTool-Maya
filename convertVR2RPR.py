@@ -1092,31 +1092,33 @@ def convertVRayMultiSubTex(vr, source):
 			# get count of layers
 			subText_size = getProperty(vr, "subTexList", size=True)
 			
+			idGenTex = getProperty(vr, "idGenTex")
+
 			subText_idxs = []
 			current_subText_index = 0
+			noIdGenTexInTexture = True
 			while len(subText_idxs) < subText_size and current_subText_index < 20:
 				if checkSubTexEnabled(current_subText_index):
 					subText_idxs.append(current_subText_index)
+				if getProperty(vr, "subTexList[{}].subTexListID".format(current_subText_index)) == idGenTex:
+					noIdGenTexInTexture = False
 				current_subText_index += 1
 				if current_subText_index == 20:
 					print("[ERROR] Script doesn't support layers with index > 20!")
 
-			idGenTex = getProperty(vr, "idGenTex")
+			# default texture conversion
+			copyProperty(rpr, vr, "inputA", "defTexture")
+			if noIdGenTexInTexture:
+				setProperty(rpr, "weight", 0)
 
 			first_texture = True
 			second_texture = True
 			for idx in subText_idxs:
 				if first_texture:
-					rpr = cmds.rename(rpr, "texture_{}_blend".format(idx))
-					copyProperty(rpr, vr, "inputA", "subTexList[{}].subTexListTex".format(idx))
-					if getProperty(vr, "subTexList[{}].subTexListID".format(idx)) == idGenTex:
-						setProperty(rpr, "weight", 0)
-					first_texture = False
-				elif second_texture:
 					copyProperty(rpr, vr, "inputB", "subTexList[{}].subTexListTex".format(idx))
 					if getProperty(vr, "subTexList[{}].subTexListID".format(idx)) == idGenTex:
 						setProperty(rpr, "weight", 1)
-					second_texture = False
+					first_texture = False
 				else:
 					prev_rpr = rpr
 					rpr = cmds.shadingNode("RPRBlendValue", asUtility=True)
@@ -1125,11 +1127,17 @@ def convertVRayMultiSubTex(vr, source):
 					copyProperty(rpr, vr, "inputB", "subTexList[{}].subTexListTex".format(idx))
 					if getProperty(vr, "subTexList[{}].subTexListID".format(idx)) == idGenTex:
 						setProperty(rpr, "weight", 1)
+					else:
+						setProperty(rpr, "weight", 0)
 
 			# Logging to file
 			end_log(vr)
+			
 		else:
-			return convertUnsupportedNode(vr, source)
+			rpr = cmds.shadingNode("RPRArithmetic", asUtility=True)
+			rpr = cmds.rename(rpr, vr + "_UNSUPPORTED_NODE")
+			copyProperty(rpr, vr, "inputA", "defTexture")
+
 
 	conversion_map = {
 		"outColor": "out",
@@ -1359,8 +1367,8 @@ def convertVRayMtl(vrMaterial, source):
 		copyProperty(rprMaterial, vrMaterial, "diffuseColor", "color")
 		copyProperty(rprMaterial, vrMaterial, "diffuseWeight", "diffuseColorAmount")
 		copyProperty(rprMaterial, vrMaterial, "diffuseRoughness", "roughnessAmount")
-		illumColor = getProperty(vrMaterial, 'illumColor')
-		if illumColor[0] or illumColor[1] or illumColor[2]:
+		
+		if getProperty(vrMaterial, 'illumColor') != (0, 0, 0) or not mapDoesNotExist(vrMaterial, 'illumColor'):
 			setProperty(rprMaterial, 'emissive', 1)
 			copyProperty(rprMaterial, vrMaterial, "emissiveColor", "illumColor")
 
@@ -1390,17 +1398,19 @@ def convertVRayMtl(vrMaterial, source):
 		else:
 			invertValue(rprMaterial, vrMaterial, 'reflectRoughness', 'reflectionGlossiness')
 
-		copyProperty(rprMaterial, vrMaterial, 'refractLinkToReflect', 'lockFresnelIORToRefractionIOR')
-
-		fresnelIOR = getProperty(vrMaterial, 'fresnelIOR')
-		if mapDoesNotExist(vrMaterial, 'fresnelIOR') and fresnelIOR > 10:
-			setProperty(rprMaterial, "reflectIOR", 10)
+		if getProperty(vrMaterial, 'lockFresnelIORToRefractionIOR'):
+			copyProperty(rprMaterial, vrMaterial, "reflectIOR", "refractionIOR")
 		else:
-			copyProperty(rprMaterial, vrMaterial, "reflectIOR", "fresnelIOR")
+			fresnelIOR = getProperty(vrMaterial, 'fresnelIOR')
 
-		if fresnelIOR < 0.1 or fresnelIOR > 10:
-			setProperty(rprMaterial, 'reflectMetalMaterial', 1) 
-			setProperty(rprMaterial, 'reflectMetalness', 1)
+			if fresnelIOR < 0.1 or fresnelIOR > 10:
+				setProperty(rprMaterial, 'reflectMetalMaterial', 1) 
+				setProperty(rprMaterial, 'reflectMetalness', 1)
+
+			if mapDoesNotExist(vrMaterial, 'fresnelIOR') and fresnelIOR > 10:
+				setProperty(rprMaterial, "reflectIOR", 10)
+			else:
+				copyProperty(rprMaterial, vrMaterial, "reflectIOR", "fresnelIOR")
 
 		copyProperty(rprMaterial, vrMaterial, "reflectAnisotropy", "anisotropy")
 		anisotropyDerivation = getProperty(vrMaterial, 'anisotropyDerivation')
