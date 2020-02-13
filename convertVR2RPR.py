@@ -78,8 +78,9 @@ def copyProperty(rpr_name, conv_name, rpr_attr, conv_attr):
 			obj, channel = cmds.connectionInfo(conv_field, sourceFromDestination=True).split('.')
 			source_name, source_attr = convertMaterial(obj, channel).split('.')
 			connectProperty(source_name, source_attr, rpr_name, rpr_attr)
+			
 		# complex color conversion for each channel (RGB/XYZ/HSV)
-		elif not listConnections and vr_type == tuple:
+		elif not listConnections and rpr_type == vr_type == tuple:
 
 			# change attr for channel conversion in some cases
 			if cmds.objectType(conv_name) == 'VRayMtl' and conv_attr == 'color':
@@ -191,6 +192,7 @@ def getProperty(material, attr, size=False):
 	# full name of attribute
 	field = material + "." + attr
 	try:
+
 		if size:
 			value = cmds.getAttr(field, size=True)
 		else:
@@ -199,8 +201,8 @@ def getProperty(material, attr, size=False):
 			if type(value) == list:
 				value = value[0]
 	except Exception as ex:
-		traceback.print_exc()
-		write_own_property_log(u"[ERROR] There is no {} field in this node. Check the field and try again. ".format(field).encode('utf-8'))
+		print(u"[ERROR] Failed to get information about {} field in {} node.".format(attr, material).encode('utf-8'))
+		write_own_property_log(u"[ERROR] Failed to get information about {} field in {} node.".format(attr, material).encode('utf-8'))
 		return
 
 	return value
@@ -1029,26 +1031,110 @@ def convertVRayLayeredTex(vr, source):
 				arith = cmds.shadingNode("RPRArithmetic", asUtility=True)
 				arith = cmds.rename(arith, 'layers_{}_arith'.format(idx))
 
-				if blendMode == 1: # average -> absolute (?)
-					setProperty(arith, "operation", 25)
-				elif blendMode == 2: # add
+				def convertUsingOneArith():
+					copyProperty(arith, vr, "inputA", "layers[{}].tex".format(idx))
+					connectProperty(old_rpr, "out", arith, "inputB")
+					connectProperty(arith, "out", rpr, "inputA")
+
+				if blendMode in (1, 13): # average & spotlite blend
 					setProperty(arith, "operation", 0)
+					copyProperty(arith, vr, "inputA", "layers[{}].tex".format(idx))
+					connectProperty(old_rpr, "out", arith, "inputB")
+
+					arith_avg = cmds.shadingNode("RPRArithmetic", asUtility=True)
+					setProperty(arith_avg, "operation", 3)
+					connectProperty(arith, "out", arith_avg, "inputA")
+					setProperty(arith_avg, "inputB", (2, 2, 2))
+					connectProperty(arith_avg, "out", rpr, "inputA")
+
+				elif blendMode in (2, 11): # add & linear dodge
+					setProperty(arith, "operation", 0)
+					convertUsingOneArith()
+
 				elif blendMode == 3: # sub
 					setProperty(arith, "operation", 1)
+					convertUsingOneArith()
+
 				elif blendMode == 4: # darken
 					setProperty(arith, "operation", 21)
-				elif blendMode == 5: # mult (?)
+					convertUsingOneArith()
+
+				elif blendMode in (5, 12): # mult & spotlite
 					setProperty(arith, "operation", 2)
-				elif blendMode == 11: # linear dodge
+					convertUsingOneArith()
+
+				elif blendMode == 6: # color burn 
+					setProperty(arith, "operation", 2)
+					setProperty(arith, "inputA", (1, 1, 1))
+					connectProperty(old_rpr, "out", arith, "inputB")
+
+					arith_div = cmds.shadingNode("RPRArithmetic", asUtility=True)
+					setProperty(arith_div, "operation", 3)
+					connectProperty(arith, "out", arith_div, "inputA")
+					copyProperty(arith_div, vr, "inputB", "layers[{}].tex".format(idx))
+					
+					arith_invert = cmds.shadingNode("RPRArithmetic", asUtility=True)
+					setProperty(arith_invert, "operation", 1)
+					setProperty(arith_invert, "inputA", (1, 1, 1))
+					connectProperty(arith_div, "out", arith_invert, "inputB")
+
+					connectProperty(arith_invert, "out", rpr, "inputA")
+
+				elif blendMode == 7: # linear burn
 					setProperty(arith, "operation", 0)
+					copyProperty(arith, vr, "inputA", "layers[{}].tex".format(idx))
+					connectProperty(old_rpr, "out", arith, "inputB")
+
+					arith_minus_one = cmds.shadingNode("RPRArithmetic", asUtility=True)
+					setProperty(arith_invert, "operation", 1)
+					connectProperty(arith, "out", arith_minus_one, "inputA")
+					setProperty(arith_minus_one, "inputA", (1, 1, 1))
+
+					connectProperty(arith_minus_one, "out", rpr, "inputA")
+
+				elif blendMode == 8: # lighten
+					setProperty(arith, "operation", 22)
+					convertUsingOneArith()
+
+				elif blendMode == 9: # screen
+					setProperty(arith, "operation", 1)
+					setProperty(arith, "inputA", (1, 1, 1))
+					copyProperty(arith, vr, "inputB", "layers[{}].tex".format(idx))
+
+					arith_invert = cmds.shadingNode("RPRArithmetic", asUtility=True)
+					setProperty(arith_invert, "operation", 1)
+					setProperty(arith_invert, "inputA", (1, 1, 1))
+					connectProperty(old_rpr, "out", arith_invert, "inputB")
+
+					arith_mult = cmds.shadingNode("RPRArithmetic", asUtility=True)
+					setProperty(arith_mult, "operation", 2)
+					connectProperty(arith, "out", arith_mult, "inputA")
+					connectProperty(arith_invert, "out", arith_mult, "inputB")
+
+					arith_invert_mult = cmds.shadingNode("RPRArithmetic", asUtility=True)
+					setProperty(arith_invert_mult, "operation", 1)
+					setProperty(arith_invert_mult, "inputA", (1, 1, 1))
+					connectProperty(arith_invert, "out", arith_invert_mult, "inputB")
+
+					connectProperty(arith_invert_mult, "out", rpr, "inputA")
+
+				elif blendMode == 9: # color dodge
+					setProperty(arith, "operation", 1)
+					setProperty(arith, "inputA", (1, 1, 1))
+					copyProperty(arith, vr, "inputB", "layers[{}].tex".format(idx))
+
+					arith_div = cmds.shadingNode("RPRArithmetic", asUtility=True)
+					setProperty(arith_div, "operation", 3)
+					connectProperty(old_rpr, "out", arith_div, "inputA")
+					connectProperty(arith, "out", arith_div, "inputB")
+
+					connectProperty(arith_div, "out", rpr, "inputA")
+
 				else:
 					arith = cmds.rename(arith, 'layers_{}_UNSUPPORTED_BLEND_MODE'.format(idx))
 					setProperty(arith, "operation", 0)
 
-				copyProperty(arith, vr, "inputA", "layers[{}].tex".format(idx))
-				connectProperty(old_rpr, "out", arith, "inputB")
-
-				connectProperty(arith, "out", rpr, "inputA")
+				
 			else:
 				copyProperty(rpr, vr, "inputA", "layers[{}].tex".format(idx))
 
@@ -1132,7 +1218,7 @@ def convertVRayMultiSubTex(vr, source):
 
 			# Logging to file
 			end_log(vr)
-			
+
 		else:
 			rpr = cmds.shadingNode("RPRArithmetic", asUtility=True)
 			rpr = cmds.rename(rpr, vr + "_UNSUPPORTED_NODE")
@@ -1150,6 +1236,32 @@ def convertVRayMultiSubTex(vr, source):
 	return rpr
 
 
+def duplicateFileNode(node):
+	file = cmds.duplicate(node)[0]
+	place2dTexture = cmds.listConnections(node, type="place2dTexture")[0]
+	texture = cmds.duplicate(place2dTexture)[0]
+	cmds.connectAttr(texture + ".coverage", file + ".coverage", f=True)
+	cmds.connectAttr(texture + ".translateFrame", file + ".translateFrame", f=True)
+	cmds.connectAttr(texture + ".rotateFrame", file + ".rotateFrame", f=True)
+	cmds.connectAttr(texture + ".mirrorU", file + ".mirrorU", f=True)
+	cmds.connectAttr(texture + ".mirrorV", file + ".mirrorV", f=True)
+	cmds.connectAttr(texture + ".stagger", file + ".stagger", f=True)
+	cmds.connectAttr(texture + ".wrapU", file + ".wrapU", f=True)
+	cmds.connectAttr(texture + ".wrapV", file + ".wrapV", f=True)
+	cmds.connectAttr(texture + ".repeatUV", file + ".repeatUV", f=True)
+	cmds.connectAttr(texture + ".offset", file + ".offset", f=True)
+	cmds.connectAttr(texture + ".rotateUV", file + ".rotateUV", f=True)
+	cmds.connectAttr(texture + ".noiseUV", file + ".noiseUV", f=True)
+	cmds.connectAttr(texture + ".vertexUvTwo", file + ".vertexUvTwo" , f=True)
+	cmds.connectAttr(texture + ".vertexUvThree", file + ".vertexUvThree", f=True)
+	cmds.connectAttr(texture + ".vertexCameraOne", file + ".vertexCameraOne", f=True)
+	cmds.connectAttr(texture + ".outUV", file + ".uv", f=True)
+	cmds.connectAttr(texture + ".outUvFilterSize", file + ".uvFilterSize")
+	cmds.connectAttr(texture + ".vertexUvOne", file + ".vertexUvOne")
+
+	return file, place2dTexture
+
+
 def convertVRayTriplanar(vr, source):
 
 	if cmds.objExists(vr + "_rpr"):
@@ -1163,13 +1275,17 @@ def convertVRayTriplanar(vr, source):
 
 		# Fields conversion
 		setProperty(rpr, 'projType', 6)
-		copyProperty(rpr, vr, 'image', 'textureX')
+		file_node, place2dTexture = None, None
+		textureX = cmds.listConnections(vr + ".textureX")
+		if textureX and cmds.objectType(textureX[0]) == "file":
+			file_node, place2dTexture = duplicateFileNode(textureX[0])
+			connectProperty(file_node, "outColor", rpr, "image")
+		else:
+			copyProperty(rpr, vr, 'image', 'textureX')
 
-		file_node = cmds.listConnections(vr + "." + 'textureX')
 		if file_node:
-			place2dTexture = cmds.listConnections(file_node[0], type="place2dTexture")[0]
-			setProperty(place2dTexture, 'repeatU', getProperty(vr, "scale") * 2 * getProperty(place2dTexture, "repeatU"))
-			setProperty(place2dTexture, 'repeatV', getProperty(vr, "scale") * 2 * getProperty(place2dTexture, "repeatV"))
+			setProperty(place2dTexture, 'repeatU', getProperty(vr, "scale") * 20 * getProperty(place2dTexture, "repeatU"))
+			setProperty(place2dTexture, 'repeatV', getProperty(vr, "scale") * 20 * getProperty(place2dTexture, "repeatV"))
 		else:
 			rpr = cmds.rename(rpr, vr + "_UNSUPPORTED_NODE")
 
