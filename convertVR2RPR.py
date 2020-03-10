@@ -2093,10 +2093,23 @@ def convertVRayToonMtl(vrMaterial, source):
 		copyProperty(rprMaterial, vrMaterial, "reflectWeight", "reflectionColorAmount")
 		invertValue(rprMaterial, vrMaterial, "reflectRoughness", "reflectionGlossiness")
 
-		opacity_color = getProperty(vrMaterial, "opacityMap")
-		if opacity_color[0] < 1 or opacity_color[1] < 1 or opacity_color[2] < 1:
+		copyProperty(rprMaterial, vrMaterial, 'refractColor', 'fogColor')
+		refractColor = getProperty(vrMaterial, 'refractionColor')
+		rpr_refr_weight = getProperty(vrMaterial, 'refractionColorAmount') * (0.3 * refractColor[0] + 0.59 * refractColor[1] + 0.11 * refractColor[2])
+		setProperty(rprMaterial, 'refractWeight', rpr_refr_weight)
+		invertValue(rprMaterial, vrMaterial, 'refractRoughness', 'refractionGlossiness')
+		copyProperty(rprMaterial, vrMaterial, 'refractIor', 'refractionIOR')
+
+		if getProperty(vrMaterial, 'refractionIOR') == 1:
+			setProperty(rprMaterial, 'refractThinSurface', 1)
+
+		if getProperty(vrMaterial, 'illumColor') != (0, 0, 0) or not mapDoesNotExist(vrMaterial, 'illumColor'):
+			setProperty(rprMaterial, 'emissive', 1)
+			copyProperty(rprMaterial, vrMaterial, "emissiveColor", "illumColor")
+
+		if getProperty(vrMaterial, 'opacityMap') != (1, 1, 1):
 			if mapDoesNotExist(vrMaterial, "opacityMap"):
-				transparency = 1 - max(opacity_color)
+				transparency = 1 - max(getProperty(vrMaterial, "opacityMap"))
 				setProperty(rprMaterial, "transparencyLevel", transparency)
 			else:
 				invertValue(rprMaterial, vrMaterial, "transparencyLevel", "opacityMap")
@@ -2949,7 +2962,7 @@ def convertVRaySky(vr_sky):
 			azimuth = 0
 		setProperty(rpr_sky, "azimuth", azimuth)
 		
-		temp_b = translate[1] / math.sqrt(translate[1]**2 + (translate[2]**2 + translate[0]**2)**2)
+		temp_b = translate[1] / math.sqrt(translate[1]**2 + translate[2]**2 + translate[0]**2)
 		altitude = math.asin(temp_b) * (180 / math.pi)
 		setProperty(rpr_sky, "altitude", altitude)
 
