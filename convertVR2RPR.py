@@ -2979,6 +2979,21 @@ def convertVRaySky(vr_sky):
 	copyProperty(rpr_sky, vr_node, "horizonHeight", "horizonOffset")
 
 
+def convertVrayCamera(camera):
+
+	vrayCameraPhysicalType = getProperty(camera, "vrayCameraPhysicalType")
+	# still camera
+	if vrayCameraPhysicalType == 0:
+		setProperty("RadeonProRenderGlobals", "toneMappingType", 6)
+		exposure = 1 / (120 * getProperty(camera, "vrayCameraPhysicalFNumber") ** 2 * getProperty(camera, "vrayCameraPhysicalShutterSpeed") / getProperty(camera, "vrayCameraPhysicalISO"))
+		setProperty("RadeonProRenderGlobals", "toneMappingSimpleExposure", exposure)
+	# movie camera
+	elif vrayCameraPhysicalType == 1:
+		setProperty("RadeonProRenderGlobals", "toneMappingType", 6)
+		exposure = 3 * cmds.currentTime('1sec', edit=True) * getProperty(camera, "vrayCameraPhysicalISO") / getProperty(camera, "vrayCameraPhysicalFNumber") ** 2 * getProperty(camera, "vrayCameraPhysicalShutterAngle")
+		setProperty("RadeonProRenderGlobals", "toneMappingSimpleExposure", exposure)
+
+
 
 def convertTemperature(temperature):
 	temperature = temperature / 100
@@ -3248,6 +3263,18 @@ def convertScene():
 
 	# Vray engine set before conversion
 	setProperty("defaultRenderGlobals","currentRenderer", "vray")
+
+	# convert vray camera
+	cameras = cmds.ls(type="camera")
+	for cam in cameras:
+		if "vrayCameraPhysicalOn" in cmds.listAttr(cam):
+			if getProperty(cam, "vrayCameraPhysicalOn"):
+				try:
+					convertVrayCamera(cam)
+				except Exception as ex:
+					traceback.print_exc()
+					print("[ERROR] Failed to {} camera".format(cam))
+
 
 	# Vray Environment
 	if getProperty("vraySettings", "cam_overrideEnvtex"):
