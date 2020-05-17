@@ -1,0 +1,8 @@
+tahoe.log
+cache/
+.mayaSwatches/
+*.pyc
+*.ma
+*.mb
+*.log
+*.ms
