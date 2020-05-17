@@ -8,6 +8,8 @@ import time
 import math
 import traceback
 
+VR2RPR_CONVERTER_VERSION = "1.4.4"
+
 MAX_RAY_DEPTH = None
 
 # log functions
@@ -3158,7 +3160,8 @@ def cleanScene():
 		if isVRayType(material):
 			shEng = cmds.listConnections(material, type="shadingEngine")
 			try:
-				cmds.delete(shEng[0])
+				if shEng:
+					cmds.delete(shEng[0])
 				cmds.delete(material)
 			except:
 				pass
@@ -3338,7 +3341,7 @@ def auto_launch():
 	cleanScene()
 
 def manual_launch():
-	print("Convertion start!")
+	print("Conversion start! Converter version: {}".format(VR2RPR_CONVERTER_VERSION))
 	startTime = 0
 	testTime = 0
 	startTime = time.time()
