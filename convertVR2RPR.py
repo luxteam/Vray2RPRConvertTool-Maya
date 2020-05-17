@@ -8,6 +8,8 @@ import time
 import math
 import traceback
 
+VR2RPR_CONVERTER_VERSION = "1.4.4"
+
 MAX_RAY_DEPTH = None
 
 # log functions
@@ -18,7 +20,7 @@ def write_converted_property_log(rpr_name, rs_name, rpr_attr, rs_attr):
 		file_path = cmds.file(q=True, sceneName=True) + ".log"
 		with open(file_path, 'a') as f:
 			f.write(u"    property {}.{} is converted to {}.{}   \r\n".format(rs_name, rs_attr, rpr_name, rpr_attr).encode('utf-8'))
-	except Exception as ex:
+	except:
 		pass
 
 
@@ -28,7 +30,7 @@ def write_own_property_log(text):
 		file_path = cmds.file(q=True, sceneName=True) + ".log"
 		with open(file_path, 'a') as f:
 			f.write("    {}   \r\n".format(text))
-	except Exception as ex:
+	except:
 		pass
 
 
@@ -44,7 +46,7 @@ def start_log(rs, rpr):
 		file_path = cmds.file(q=True, sceneName=True) + ".log"
 		with open(file_path, 'a') as f:
 			f.write(text)
-	except Exception as ex:
+	except:
 		pass
 	
 
@@ -57,7 +59,7 @@ def end_log(rs):
 		file_path = cmds.file(q=True, sceneName=True) + ".log"
 		with open(file_path, 'a') as f:
 			f.write(text)
-	except Exception as ex:
+	except:
 		pass
 		
 
@@ -166,6 +168,7 @@ def copyProperty(rpr_name, conv_name, rpr_attr, conv_attr):
 	except Exception as ex:
 		traceback.print_exc()
 		print(u"[ERROR] Failed to copy parameters from {} to {}".format(conv_field, rpr_field).encode('utf-8'))
+		write_own_property_log(u"[ERROR] Failed to copy parameters from {} to {}".format(conv_field, rpr_field).encode('utf-8'))
 
 
 def setProperty(rpr_name, rpr_attr, value):
@@ -174,6 +177,11 @@ def setProperty(rpr_name, rpr_attr, value):
 	rpr_field = rpr_name + "." + rpr_attr
 
 	try:
+		# break existed connection
+		if not mapDoesNotExist(rpr_name, rpr_attr):
+			source = cmds.connectionInfo(rpr_field, sourceFromDestination=True)
+			cmds.disconnectAttr(source, rpr_field)
+
 		if type(value) == tuple:
 			cmds.setAttr(rpr_field, value[0], value[1], value[2])
 		elif type(value) == str or type(value) == unicode:
@@ -227,6 +235,7 @@ def mapDoesNotExist(rs_name, rs_attr):
 				return 0
 	except Exception as ex:
 		traceback.print_exc()
+		print(u"[ERROR] There is no {} field in this node. Check the field and try again. ".format(rs_field).encode('utf-8'))
 		write_own_property_log(u"[ERROR] There is no {} field in this node. Check the field and try again. ".format(rs_field).encode('utf-8'))
 		return
 
@@ -766,7 +775,7 @@ def convertStandardNode(vrayMaterial, source):
 					obj, channel = cmds.connectionInfo(vrayMaterial + "." + attr, sourceFromDestination=True).split('.')
 					source_name, source_attr = convertMaterial(obj, channel).split('.')
 					connectProperty(source_name, source_attr, vrayMaterial, attr)
-	except Exception as ex:
+	except:
 		pass
 
 	return vrayMaterial + "." + source
@@ -1293,6 +1302,111 @@ def convertVRayTriplanar(vr, source):
 		end_log(vr)
 
 	rpr += ".outColor"
+	return rpr
+
+
+def convertVRayInverseExposure(vr, source):
+
+	if cmds.objExists(vr + "_rpr"):
+			rpr = vr + "_rpr"
+	else:
+
+		vrayCameraPhysicalOn = False
+		cameras = cmds.ls(type="camera")
+		for cam in cameras:
+			if "vrayCameraPhysicalOn" in cmds.listAttr(cam):
+				if getProperty(cam, "vrayCameraPhysicalOn"):
+					vrayCameraPhysicalOn = True
+
+		if vrayCameraPhysicalOn:
+
+			rpr = cmds.shadingNode("RPRArithmetic", asUtility=True)
+			rpr = cmds.rename(rpr, vr + "_rpr")
+
+			# Logging to file
+			start_log(vr, rpr)
+
+			f_number_power_by_2 = cmds.shadingNode("RPRArithmetic", asUtility=True)
+			f_number_power_by_2 = cmds.rename(f_number_power_by_2, "f_number_power_by_2")
+			setProperty(f_number_power_by_2, "operation", 15)
+			copyProperty(f_number_power_by_2, vr, "inputAX", "fNumber")
+			setProperty(f_number_power_by_2, "inputBX", 2)
+
+			shutter_mult_fnumber = cmds.shadingNode("RPRArithmetic", asUtility=True)
+			shutter_mult_fnumber = cmds.rename(shutter_mult_fnumber, "shutter_mult_fnumber")
+			setProperty(shutter_mult_fnumber, "operation", 2)
+			connectProperty(f_number_power_by_2, "outX", shutter_mult_fnumber, "inputAX")
+			copyProperty(shutter_mult_fnumber, vr, "inputBX", "shutterSpeed")
+
+			mult_x_120 = cmds.shadingNode("RPRArithmetic", asUtility=True)
+			mult_x_120 = cmds.rename(mult_x_120, "mult_x_120")
+			setProperty(mult_x_120, "operation", 2)
+			connectProperty(shutter_mult_fnumber, "outX", mult_x_120, "inputAX")
+			setProperty(mult_x_120, "inputBX", 120)
+
+			div_by_iso_1 = cmds.shadingNode("RPRArithmetic", asUtility=True)
+			div_by_iso_1 = cmds.rename(div_by_iso_1, "div_by_iso_1")
+			setProperty(div_by_iso_1, "operation", 3)
+			connectProperty(mult_x_120, "outX", div_by_iso_1, "inputAX")
+			copyProperty(div_by_iso_1, vr, "inputBX", "iso")
+
+			one_div_by = cmds.shadingNode("RPRArithmetic", asUtility=True)
+			one_div_by = cmds.rename(one_div_by, "one_div_by")
+			setProperty(one_div_by, "operation", 3)
+			setProperty(one_div_by, "inputAX", 1)
+			connectProperty(div_by_iso_1, "outX", one_div_by, "inputBX")
+
+			fnumber_div_shutter = cmds.shadingNode("RPRArithmetic", asUtility=True)
+			fnumber_div_shutter = cmds.rename(fnumber_div_shutter, "fnumber_div_shutter")
+			setProperty(fnumber_div_shutter, "operation", 3)
+			connectProperty(f_number_power_by_2, "outX", fnumber_div_shutter, "inputAX")
+			copyProperty(fnumber_div_shutter, vr, "inputBX", "shutterSpeed")
+
+			add_x_250 = cmds.shadingNode("RPRArithmetic", asUtility=True)
+			add_x_250 = cmds.rename(add_x_250, "add_x_250")
+			setProperty(add_x_250, "operation", 0)
+			connectProperty(fnumber_div_shutter, "outX", add_x_250, "inputAX")
+			setProperty(add_x_250, "inputBX", 250)
+
+			sub_by_iso = cmds.shadingNode("RPRArithmetic", asUtility=True)
+			sub_by_iso = cmds.rename(sub_by_iso, "sub_by_iso")
+			setProperty(sub_by_iso, "operation", 1)
+			connectProperty(add_x_250, "outX", sub_by_iso, "inputAX")
+			copyProperty(sub_by_iso, vr, "inputBX", "iso")
+
+			mult_divs = cmds.shadingNode("RPRArithmetic", asUtility=True)
+			mult_divs = cmds.rename(mult_divs, "mult_divs")
+			setProperty(mult_divs, "operation", 2)
+			connectProperty(one_div_by, "outX", mult_divs, "inputAX")
+			connectProperty(sub_by_iso, "outX", mult_divs, "inputBX")
+
+			setProperty(rpr, "operation", 2)
+			connectProperty(mult_divs, "outX", rpr, "inputAX")
+			connectProperty(mult_divs, "outX", rpr, "inputAY")
+			connectProperty(mult_divs, "outX", rpr, "inputAZ")
+			copyProperty(rpr, vr, "inputB", "inTexture")
+			
+			# Logging to file
+			end_log(vr)
+
+		else:
+			rpr = cmds.shadingNode("RPRArithmetic", asUtility=True)
+			rpr = cmds.rename(rpr, vr + "_UNSUPPORTED_NODE")
+			copyProperty(rpr, vr, "inputA", "inTexture")
+
+
+	conversion_map = {
+		"outColor": "out",
+		"outColorR": "outR",
+		"outColorG": "outG",
+		"outColorB": "outB",
+		"inTexture": "out",
+		"inTextureR": "outR",
+		"inTextureG": "outG",
+		"inTextureB": "outB"
+	}
+
+	rpr += "." + conversion_map[source]
 	return rpr
 
 
@@ -1981,10 +2095,23 @@ def convertVRayToonMtl(vrMaterial, source):
 		copyProperty(rprMaterial, vrMaterial, "reflectWeight", "reflectionColorAmount")
 		invertValue(rprMaterial, vrMaterial, "reflectRoughness", "reflectionGlossiness")
 
-		opacity_color = getProperty(vrMaterial, "opacityMap")
-		if opacity_color[0] < 1 or opacity_color[1] < 1 or opacity_color[2] < 1:
+		copyProperty(rprMaterial, vrMaterial, 'refractColor', 'fogColor')
+		refractColor = getProperty(vrMaterial, 'refractionColor')
+		rpr_refr_weight = getProperty(vrMaterial, 'refractionColorAmount') * (0.3 * refractColor[0] + 0.59 * refractColor[1] + 0.11 * refractColor[2])
+		setProperty(rprMaterial, 'refractWeight', rpr_refr_weight)
+		invertValue(rprMaterial, vrMaterial, 'refractRoughness', 'refractionGlossiness')
+		copyProperty(rprMaterial, vrMaterial, 'refractIor', 'refractionIOR')
+
+		if getProperty(vrMaterial, 'refractionIOR') == 1:
+			setProperty(rprMaterial, 'refractThinSurface', 1)
+
+		if getProperty(vrMaterial, 'illumColor') != (0, 0, 0) or not mapDoesNotExist(vrMaterial, 'illumColor'):
+			setProperty(rprMaterial, 'emissive', 1)
+			copyProperty(rprMaterial, vrMaterial, "emissiveColor", "illumColor")
+
+		if getProperty(vrMaterial, 'opacityMap') != (1, 1, 1):
 			if mapDoesNotExist(vrMaterial, "opacityMap"):
-				transparency = 1 - max(opacity_color)
+				transparency = 1 - max(getProperty(vrMaterial, "opacityMap"))
 				setProperty(rprMaterial, "transparencyLevel", transparency)
 			else:
 				invertValue(rprMaterial, vrMaterial, "transparencyLevel", "opacityMap")
@@ -2008,6 +2135,46 @@ def convertVRayToonMtl(vrMaterial, source):
 		rprMaterial += "." + source
 	return rprMaterial
 
+
+######################## 
+##  VRayMtlWrapper
+########################
+
+def convertVRayMtlWrapper(vrMaterial, source):
+
+	assigned = checkAssign(vrMaterial)
+	
+	if cmds.objExists(vrMaterial + "_rpr"):
+		rprMaterial = vrMaterial + "_rpr"
+	else:
+		# Creating new Uber material
+		baseMaterial = cmds.listConnections(vrMaterial + ".baseMaterial")
+		if baseMaterial:
+			rprMaterial = convertMaterial(baseMaterial[0], "")
+			rprMaterial = cmds.rename(rprMaterial, vrMaterial + "_rpr")
+		else:
+			rprMaterial = cmds.shadingNode("RPRUberMaterial", asShader=True)
+			rprMaterial = cmds.rename(rprMaterial, vrMaterial + "_rpr")
+
+		# Check shading engine in vrMaterial
+		if assigned:
+			sg = rprMaterial + "SG"
+			cmds.sets(renderable=True, noSurfaceShader=True, empty=True, name=sg)
+			connectProperty(rprMaterial, "outColor", sg, "surfaceShader")
+		
+		if cmds.objectType(rprMaterial) == "RPRUberMaterial":
+			if getProperty(vrMaterial, "receiveCaustics"):
+				setProperty(rprMaterial, "refractAllowCaustics", 1)
+			if getProperty(vrMaterial, "reflectionAmount") > 0:
+				setProperty(rprMaterial, "reflections", 1)
+				copyProperty(rprMaterial, vrMaterial, "reflectWeight", "reflectionAmount")
+			if getProperty(vrMaterial, "refractionAmount") > 0:
+				setProperty(rprMaterial, "refraction", 1)
+				copyProperty(rprMaterial, vrMaterial, "refractWeight", "reflectionAmount")
+
+	if source:
+		rprMaterial += "." + source
+	return rprMaterial
 
 
 ######################## 
@@ -2772,6 +2939,64 @@ def convertVRayLightMeshLightLinking(vr_light):
 	end_log(vr_light) 
 
 
+def convertVRaySky(vr_sky):
+
+	rpr_sky = cmds.createNode("RPRSky", n="RPRSkyShape")
+	
+	# Check sun exists
+	vr_sun = cmds.listConnections(vr_sky + ".sun")
+	if vr_sun and cmds.objectType(vr_sun[0]) == "VRayGeoSun":
+		# copy values from sky in override case
+		if getProperty(vr_sky, "sunDirOnly"):
+			vr_node = vr_sky
+		else:
+			vr_node = vr_sun[0]
+
+		# convert altitude and azimuth
+		translate = getProperty(vr_sun[0], "translate")
+
+		temp_a = math.asin(translate[0] / math.sqrt(translate[2]**2 + translate[0]**2)) * (180 / math.pi)
+		if translate[2] > 0:
+			azimuth = 180 + temp_a
+		elif translate[2] < 0:
+			azimuth = -temp_a
+		elif translate[2] == 0:
+			azimuth = 0
+		setProperty(rpr_sky, "azimuth", azimuth)
+		
+		temp_b = translate[1] / math.sqrt(translate[1]**2 + translate[2]**2 + translate[0]**2)
+		altitude = math.asin(temp_b) * (180 / math.pi)
+		setProperty(rpr_sky, "altitude", altitude)
+
+	else:
+		vr_node = vr_sky
+
+	vr_int = getProperty(vr_node, "intensityMult")
+	setProperty(rpr_sky, "intensity", 774.848266 * (vr_int**3) - 364.401165 * (vr_int**2) + 71.960137 * vr_int - 0.071448)
+
+	copyProperty(rpr_sky, vr_node, "turbidity", "turbidity")
+	copyProperty(rpr_sky, vr_node, "filterColor", "filterColor")
+	copyProperty(rpr_sky, vr_node, "groundColor", "groundAlbedo")
+	copyProperty(rpr_sky, vr_node, "horizonBlur", "blendAngle")
+	copyProperty(rpr_sky, vr_node, "horizonHeight", "horizonOffset")
+
+
+def convertVrayCamera(camera):
+
+	vrayCameraPhysicalType = getProperty(camera, "vrayCameraPhysicalType")
+	# still camera
+	if vrayCameraPhysicalType == 0:
+		setProperty("RadeonProRenderGlobals", "toneMappingType", 6)
+		exposure = 1 / (120 * getProperty(camera, "vrayCameraPhysicalFNumber") ** 2 * getProperty(camera, "vrayCameraPhysicalShutterSpeed") / getProperty(camera, "vrayCameraPhysicalISO"))
+		setProperty("RadeonProRenderGlobals", "toneMappingSimpleExposure", exposure)
+	# movie camera
+	elif vrayCameraPhysicalType == 1:
+		setProperty("RadeonProRenderGlobals", "toneMappingType", 6)
+		exposure = 3 * cmds.currentTime('1sec', edit=True) * getProperty(camera, "vrayCameraPhysicalISO") / getProperty(camera, "vrayCameraPhysicalFNumber") ** 2 * getProperty(camera, "vrayCameraPhysicalShutterAngle")
+		setProperty("RadeonProRenderGlobals", "toneMappingSimpleExposure", exposure)
+
+
+
 def convertTemperature(temperature):
 	temperature = temperature / 100
 
@@ -2841,6 +3066,7 @@ def convertMaterial(material, source):
 		"VRayMtlHair3": convertVRayMtlHair3,
 		"VRayToonMtl": convertVRayToonMtl,
 		"VRaySwitchMtl": convertVRaySwitchMtl,
+		"VRayMtlWrapper": convertVRayMtlWrapper,
 
 		"VRayFlakesMtl": convertUnsupportedMaterial,
 		"VRayMeshMaterial": convertUnsupportedMaterial,
@@ -2849,7 +3075,6 @@ def convertMaterial(material, source):
 		"VRayMtlMDL": convertUnsupportedMaterial,
 		"VRayMtlOSL": convertUnsupportedMaterial,
 		"VRayMtlRenderStats": convertUnsupportedMaterial,
-		"VRayMtlWrapper": convertUnsupportedMaterial,
 		"VRayPointParticleMtl": convertUnsupportedMaterial,
 		"VRayScannedMtl": convertUnsupportedMaterial,
 		"VRayStochasticFlakesMtl": convertUnsupportedMaterial,
@@ -2885,7 +3110,8 @@ def convertMaterial(material, source):
 		"VRayUserColor": convertVRayUserColor,
 		"VRayUserScalar": convertVRayUserScalar,
 		"VRayUserInteger": convertVRayUserInteger,
-		"VRayMultiSubTex": convertVRayMultiSubTex
+		"VRayMultiSubTex": convertVRayMultiSubTex,
+		"VRayInverseExposure": convertVRayInverseExposure
 
 	}
 
@@ -2908,11 +3134,8 @@ def convertLight(light):
 	conversion_func = {
 
 		# VRay lights
-
 		"VRayLightDomeShape": convertVRayLightDomeShape,
 		"VRayLightRectShape": convertVRayLightRectShape,
-		#"VRaySunShape": convertVRaySunShape,
-		#"VRaySky": convertVRaySky,
 		"VRayLightSphereShape": convertVRayLightSphereShape,
 		"VRayLightMeshLightLinking": convertVRayLightMeshLightLinking,
 		"VRayLightIESShape": convertVRayLightIESShape,
@@ -2937,9 +3160,10 @@ def cleanScene():
 		if isVRayType(material):
 			shEng = cmds.listConnections(material, type="shadingEngine")
 			try:
-				cmds.delete(shEng[0])
+				if shEng:
+					cmds.delete(shEng[0])
 				cmds.delete(material)
-			except Exception as ex:
+			except:
 				pass
 
 	listLights = cmds.ls(l=True, type=["VRayLightRectShape", "VRayLightDomeShape", "VRaySunShape", "VRaySky", "VRaySunTarget", "VRayLightSphereShape", \
@@ -2951,7 +3175,7 @@ def cleanScene():
 			cmds.delete(light)
 			if light_type != "VRayLightMesh":
 				cmds.delete(transform[0])
-		except Exception as ex:
+		except:
 			pass
 
 	listObjects = cmds.ls(l=True)
@@ -2959,7 +3183,7 @@ def cleanScene():
 		if isVRayType(obj):
 			try:
 				cmds.delete(obj)
-			except Exception as ex:
+			except:
 				pass
 
 
@@ -3043,33 +3267,30 @@ def convertScene():
 	# Vray engine set before conversion
 	setProperty("defaultRenderGlobals","currentRenderer", "vray")
 
-	# TODO Convert Vray Environment
+	# convert vray camera
+	cameras = cmds.ls(type="camera")
+	for cam in cameras:
+		if "vrayCameraPhysicalOn" in cmds.listAttr(cam):
+			if getProperty(cam, "vrayCameraPhysicalOn"):
+				try:
+					convertVrayCamera(cam)
+				except Exception as ex:
+					traceback.print_exc()
+					print("[ERROR] Failed to {} camera".format(cam))
 
-	'''
-	env = cmds.ls(type="VrayEnvironment")
-	if env:
-		try:
-			convertVrayEnvironment(env[0])
-		except Exception as ex:
-			traceback.print_exc()
-			print("Error while converting environment. ")
-	'''
 
-	# TODO Convert Vray PhysicalSky
-
-	'''
-	sky = cmds.ls(type="VrayPhysicalSky")
-	if sky:
-		try:
-			convertVrayPhysicalSky(sky[0])
-		except Exception as ex:
-			traceback.print_exc()
-			print("Error while converting physical sky. \n")
-	'''
+	# Vray Environment
+	if getProperty("vraySettings", "cam_overrideEnvtex"):
+		sky = cmds.ls(type="VRaySky")
+		if sky:
+			try:
+				convertVRaySky(sky[0])
+			except Exception as ex:
+				traceback.print_exc()
+				print("[ERROR] Failed to convert VRaySky")
 
 	# Get all lights from scene
-	listLights = cmds.ls(l=True, type=["VRayLightRectShape", "VRayLightDomeShape", "VRaySunShape", "VRaySky", "VRayLightSphereShape", \
-		"VRayLightMeshLightLinking", "VRayLightIESShape", "areaLight", "spotLight", "pointLight", "directionalLight"])
+	listLights = cmds.ls(l=True, type=["VRayLightRectShape", "VRayLightDomeShape", "VRayLightMeshLightLinking", "VRayLightIESShape"])
 
 	# Convert lights
 	for light in listLights:
@@ -3120,16 +3341,16 @@ def auto_launch():
 	cleanScene()
 
 def manual_launch():
-	print("Convertion start!")
+	print("Conversion start! Converter version: {}".format(VR2RPR_CONVERTER_VERSION))
 	startTime = 0
 	testTime = 0
 	startTime = time.time()
 	convertScene()
 	testTime = time.time() - startTime
-	print("Convertion finished! Time: " + str(testTime))
+	print("Conversion was finished! Elapsed time: {}".format(round(testTime, 3)))
 
-	response = cmds.confirmDialog(title="Convertation finished",
-							  message=("Total time: " + str(testTime) + "\nDelete all V-Ray instances?"),
+	response = cmds.confirmDialog(title="Completed",
+							  message=("Scene conversion took {} seconds.\nWould you like to delete all VRay objects?".format(round(testTime, 3))),
 							  button=["Yes", "No"],
 							  defaultButton="Yes",
 							  cancelButton="No",
