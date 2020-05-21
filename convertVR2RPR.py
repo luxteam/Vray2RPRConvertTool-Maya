@@ -11,14 +11,16 @@
 
 # Vray to RadeonProRender Converter
 
-import maya.mel as mel
-import maya.cmds as cmds
-import os
 import time
+import os
 import math
 import traceback
 
-VR2RPR_CONVERTER_VERSION = "1.5.0"
+import maya.mel as mel
+import maya.cmds as cmds
+from maya.plugin.evaluator.cache_preferences import CachePreferenceEnabled
+
+VR2RPR_CONVERTER_VERSION = "1.5.1"
 
 MAX_RAY_DEPTH = None
 
@@ -3246,6 +3248,13 @@ def repathScene():
 
 def convertScene():
 
+	# Disable caching
+	maya_version = cmds.about(apiVersion=True)
+	if maya_version > 20190200:
+		cache_preference_enabled = CachePreferenceEnabled().get_value()
+		if cache_preference_enabled:
+			CachePreferenceEnabled().set_value(False)
+
 	# Repath paths in scene files (filePathEditor)
 	repathScene()
 
@@ -3341,9 +3350,12 @@ def convertScene():
 			setProperty("RadeonProRenderGlobals", "maxRayDepth", MAX_RAY_DEPTH)
 		
 		# TODO render settings conversion
-
 	except:
 		pass
+
+	if maya_version > 20190200:
+		if cache_preference_enabled:
+			CachePreferenceEnabled().set_value(True)
 
 
 def auto_launch():
