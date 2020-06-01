@@ -20,7 +20,7 @@ import maya.mel as mel
 import maya.cmds as cmds
 from maya.plugin.evaluator.cache_preferences import CachePreferenceEnabled
 
-VR2RPR_CONVERTER_VERSION = "1.5.1"
+VR2RPR_CONVERTER_VERSION = "1.5.2"
 
 MAX_RAY_DEPTH = None
 
@@ -3284,7 +3284,7 @@ def convertScene():
 			exit("RadeonProRender plugin is not installed")
 
 	# Vray engine set before conversion
-	setProperty("defaultRenderGlobals","currentRenderer", "vray")
+	setProperty("defaultRenderGlobals", "currentRenderer", "vray")
 
 	# convert vray camera
 	cameras = cmds.ls(type="camera")
@@ -3349,7 +3349,28 @@ def convertScene():
 		if MAX_RAY_DEPTH:
 			setProperty("RadeonProRenderGlobals", "maxRayDepth", MAX_RAY_DEPTH)
 		
-		# TODO render settings conversion
+		aa_filter_conversion_map = {
+			0: 1, # box
+			1: 1, # area (not supported by rpr)
+			2: 2, # triangle
+			3: 5, # lanczos
+			4: 1, # sinc (not supported by rpr)
+			5: 1, # catmull rom (not supported by rpr)
+			6: 3, # gaussian
+			7: 1  # cook variable (not supported by rpr)
+		}
+
+		rpr_filter_value = aa_filter_conversion_map[getProperty("vraySettings", "aaFilterType")]
+		setProperty("RadeonProRenderGlobals", "filter", rpr_filter_value)
+
+		if getProperty("vraySettings", "progressiveMinSubdivs") < 16:
+			setProperty("RadeonProRenderGlobals", "completionCriteriaMinIterations", 16)
+		else:
+			copyProperty("RadeonProRenderGlobals", "vraySettings", "completionCriteriaMinIterations", "progressiveMinSubdivs")
+		copyProperty("RadeonProRenderGlobals", "vraySettings", "completionCriteriaIterations", "progressiveMaxSubdivs")
+		copyProperty("RadeonProRenderGlobals", "vraySettings", "completionCriteriaMinutes", "progressiveMaxTime")
+		copyProperty("RadeonProRenderGlobals", "vraySettings", "adaptiveThreshold", "progressiveThreshold")
+
 	except:
 		pass
 
