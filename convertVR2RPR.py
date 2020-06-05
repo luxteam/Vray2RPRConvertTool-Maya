@@ -18,9 +18,8 @@ import traceback
 
 import maya.mel as mel
 import maya.cmds as cmds
-from maya.plugin.evaluator.cache_preferences import CachePreferenceEnabled
 
-VR2RPR_CONVERTER_VERSION = "1.5.2"
+VR2RPR_CONVERTER_VERSION = "1.5.3"
 
 MAX_RAY_DEPTH = None
 
@@ -3251,6 +3250,7 @@ def convertScene():
 	# Disable caching
 	maya_version = cmds.about(apiVersion=True)
 	if maya_version > 20190200:
+		from maya.plugin.evaluator.cache_preferences import CachePreferenceEnabled
 		cache_preference_enabled = CachePreferenceEnabled().get_value()
 		if cache_preference_enabled:
 			CachePreferenceEnabled().set_value(False)
