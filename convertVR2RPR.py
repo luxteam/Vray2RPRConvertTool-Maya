@@ -19,7 +19,7 @@ import traceback
 import maya.mel as mel
 import maya.cmds as cmds
 
-VR2RPR_CONVERTER_VERSION = "1.5.3"
+VR2RPR_CONVERTER_VERSION = "1.6.3"
 
 MAX_RAY_DEPTH = None
 
